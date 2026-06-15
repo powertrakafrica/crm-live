@@ -2,10 +2,12 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Loader2, Search, ShieldCheck, MapPin, TrendingUp, Award } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import PropertyCard from "@/components/PropertyCard";
 import InteractiveMap from "@/components/InteractiveMap";
+import { PhotonSearch } from "@/components/PhotonSearch";
 import { propertiesApi } from "@/lib/api";
 import { REGIONS } from "@/lib/data";
 
@@ -23,9 +25,11 @@ interface FeaturedProperty {
 }
 
 export default function Home() {
+    const router = useRouter();
     const [featured, setFeatured] = useState<FeaturedProperty[]>([]);
     const [loading, setLoading] = useState(true);
     const [regionCounts, setRegionCounts] = useState<Record<string, number>>({});
+    const [searchLocation, setSearchLocation] = useState("");
 
     useEffect(() => {
         propertiesApi
@@ -74,11 +78,14 @@ export default function Home() {
                         <div className="mt-10 max-w-2xl mx-auto">
                             <div className="relative flex items-center bg-white rounded-full shadow-lg border border-slate-200 p-2 focus-within:ring-2 focus-within:ring-brand-200 focus-within:border-brand-400 transition-all">
                                 <Search className="ml-4 h-5 w-5 text-slate-400 shrink-0" />
-                                <input
-                                    type="text"
-                                    placeholder="Search by region, city, or property type..."
-                                    className="flex-1 bg-transparent border-none outline-none text-base px-4 py-2.5 placeholder:text-slate-400 text-slate-900"
-                                />
+                                <div className="flex-1 px-2">
+                                    <PhotonSearch
+                                        value={searchLocation}
+                                        onChange={(val) => setSearchLocation(val)}
+                                        placeholder="Search by city or location..."
+                                        className="[&_input]:border-none [&_input]:ring-0 [&_input]:shadow-none [&_input]:bg-transparent [&_input]:text-base [&_input]:placeholder:text-slate-400 [&_input]:text-slate-900 [&_input]:py-1 [&_input]:pl-2 [&_input]:pr-8"
+                                    />
+                                </div>
                                 <Button size="lg" className="rounded-full px-8 shadow-sm">
                                     Search
                                 </Button>
@@ -229,7 +236,13 @@ export default function Home() {
                         </p>
                     </div>
                     <div className="bg-white rounded-2xl p-3 sm:p-4 shadow-sm border border-slate-200">
-                        <InteractiveMap height="h-[500px] sm:h-[600px]" />
+                        <InteractiveMap
+                            height="h-[500px] sm:h-[600px]"
+                            onRegionSelect={(code) => {
+                                const regionId = code.toLowerCase().replace(/\s+/g, "-");
+                                router.push(`/region/${regionId}`);
+                            }}
+                        />
                     </div>
                 </div>
             </section>

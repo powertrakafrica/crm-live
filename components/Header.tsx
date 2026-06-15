@@ -105,7 +105,7 @@ export default function Header() {
     const navLinks = [
         { href: "/", label: "Home", icon: Home },
         { href: "/properties", label: "Properties", icon: MapPin },
-        { href: "/region/greater-accra", label: "Regions", icon: MapPin },
+        { href: "/regions", label: "Regions", icon: MapPin },
     ];
 
     return (

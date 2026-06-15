@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { Plus, X, MapPin, CheckSquare, UploadCloud, CheckCircle2, Globe, ShieldCheck, Home } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { PhotonSearch } from "@/components/PhotonSearch";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { ownerApi } from "@/lib/api";
@@ -20,7 +21,16 @@ interface OwnerProperty {
 
 export function OwnerListings() {
     const [wizardStep, setWizardStep] = useState(0);
-    const [privacyMode, setPrivacyMode] = useState(false);
+    const [wizardForm, setWizardForm] = useState({
+        listingType: "Rent",
+        title: "",
+        price: "",
+        category: "Plot of Land",
+        region: "Greater Accra",
+        district: "Ayawaso West",
+        privacyMode: false,
+        features: ["Walled & Gated", "Borehole Access", "Prepaid Meter"],
+    });
     const [listings, setListings] = useState<OwnerProperty[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
@@ -180,23 +190,49 @@ export function OwnerListings() {
                                     </div>
                                     <div className="grid grid-cols-3 gap-3">
                                         {['Rent', 'Sale', 'Rent-to-Own'].map(t => (
-                                            <div key={t} className="border-2 border-charcoal-200 rounded-sm p-3 text-center cursor-pointer hover:border-brand-500 hover:bg-brand-50 transition-colors">
-                                                <span className="font-bold text-sm text-charcoal-800">{t}</span>
+                                            <div
+                                                key={t}
+                                                onClick={() => setWizardForm({ ...wizardForm, listingType: t })}
+                                                className={`border-2 rounded-sm p-3 text-center cursor-pointer transition-colors ${wizardForm.listingType === t ? "border-brand-500 bg-brand-50" : "border-charcoal-200 hover:border-brand-500 hover:bg-brand-50"}`}
+                                            >
+                                                <span className={`font-bold text-sm ${wizardForm.listingType === t ? "text-brand-800" : "text-charcoal-800"}`}>{t}</span>
                                             </div>
                                         ))}
                                     </div>
                                     <div className="space-y-1">
-                                        <label className="text-xs font-bold uppercase tracking-wider text-charcoal-500">Property Title</label>
-                                        <input type="text" placeholder="e.g. 2 Bedroom Semi-Detached House" className="w-full bg-white border border-charcoal-200 focus:border-brand-500 focus:ring-1 focus:ring-brand-500 text-sm rounded-sm px-3 py-3 outline-none font-medium text-charcoal-900 shadow-sm" />
+                                        <label className="text-xs font-bold uppercase tracking-wider text-charcoal-500">Property Title *</label>
+                                        <input
+                                            type="text"
+                                            value={wizardForm.title}
+                                            onChange={(e) => setWizardForm({ ...wizardForm, title: e.target.value })}
+                                            placeholder="e.g. 2 Bedroom Semi-Detached House"
+                                            className={`w-full bg-white border text-sm rounded-sm px-3 py-3 outline-none font-medium text-charcoal-900 shadow-sm ${wizardForm.title.trim() === '' ? 'border-red-300 focus:border-red-500 focus:ring-1 focus:ring-red-500' : 'border-charcoal-200 focus:border-brand-500 focus:ring-1 focus:ring-brand-500'}`}
+                                        />
+                                        {wizardForm.title.trim() === '' && (
+                                            <p className="text-[11px] text-red-600 font-medium">Property title is required</p>
+                                        )}
                                     </div>
                                     <div className="grid grid-cols-2 gap-4">
                                         <div className="space-y-1">
-                                            <label className="text-xs font-bold uppercase tracking-wider text-charcoal-500">Price (GH₵)</label>
-                                            <input type="number" placeholder="5,000" className="w-full bg-white border border-charcoal-200 focus:border-brand-500 focus:ring-1 focus:ring-brand-500 text-sm rounded-sm px-3 py-3 outline-none font-medium text-charcoal-900 shadow-sm" />
+                                            <label className="text-xs font-bold uppercase tracking-wider text-charcoal-500">Price (GH₵) *</label>
+                                            <input
+                                                type="number"
+                                                value={wizardForm.price}
+                                                onChange={(e) => setWizardForm({ ...wizardForm, price: e.target.value })}
+                                                placeholder="5,000"
+                                                className={`w-full bg-white border text-sm rounded-sm px-3 py-3 outline-none font-medium text-charcoal-900 shadow-sm ${wizardForm.price === '' ? 'border-red-300 focus:border-red-500 focus:ring-1 focus:ring-red-500' : 'border-charcoal-200 focus:border-brand-500 focus:ring-1 focus:ring-brand-500'}`}
+                                            />
+                                            {wizardForm.price === '' && (
+                                                <p className="text-[11px] text-red-600 font-medium">Price is required</p>
+                                            )}
                                         </div>
                                         <div className="space-y-1">
                                             <label className="text-xs font-bold uppercase tracking-wider text-charcoal-500">Category</label>
-                                            <select className="w-full bg-white border border-charcoal-200 focus:border-brand-500 focus:ring-1 focus:ring-brand-500 text-sm rounded-sm px-3 py-3 outline-none font-medium text-charcoal-900 shadow-sm">
+                                            <select
+                                                value={wizardForm.category}
+                                                onChange={(e) => setWizardForm({ ...wizardForm, category: e.target.value })}
+                                                className="w-full bg-white border border-charcoal-200 focus:border-brand-500 focus:ring-1 focus:ring-brand-500 text-sm rounded-sm px-3 py-3 outline-none font-medium text-charcoal-900 shadow-sm"
+                                            >
                                                 <option>Plot of Land</option>
                                                 <option>Self-Contained</option>
                                                 <option>Gated Community</option>
@@ -213,12 +249,39 @@ export function OwnerListings() {
                                         <h4 className="font-bold text-lg text-charcoal-900">Geographic Pinning</h4>
                                         <p className="text-sm text-charcoal-500">Where exactly is this located?</p>
                                     </div>
+                                    <div className="space-y-1">
+                                        <label className="text-xs font-bold uppercase tracking-wider text-charcoal-500">Search Location</label>
+                                        <PhotonSearch
+                                            value=""
+                                            onChange={(val, feat) => {
+                                                if (feat) {
+                                                    const state = feat.properties.state ?? "";
+                                                    const district = feat.properties.district ?? feat.properties.city ?? "";
+                                                    setWizardForm((prev) => ({
+                                                        ...prev,
+                                                        region: state || prev.region,
+                                                        district: district || prev.district,
+                                                    }));
+                                                }
+                                            }}
+                                            placeholder="Type an area, landmark, or address..."
+                                        />
+                                    </div>
+
                                     <div className="grid grid-cols-2 gap-4">
-                                        <select className="col-span-1 border border-charcoal-200 text-sm rounded-sm px-3 py-3 shadow-sm font-medium outline-none focus:border-brand-500">
+                                        <select
+                                            value={wizardForm.region}
+                                            onChange={(e) => setWizardForm({ ...wizardForm, region: e.target.value })}
+                                            className="col-span-1 border border-charcoal-200 text-sm rounded-sm px-3 py-3 shadow-sm font-medium outline-none focus:border-brand-500"
+                                        >
                                             <option>Greater Accra</option>
                                             <option>Ashanti</option>
                                         </select>
-                                        <select className="col-span-1 border border-charcoal-200 text-sm rounded-sm px-3 py-3 shadow-sm font-medium outline-none focus:border-brand-500">
+                                        <select
+                                            value={wizardForm.district}
+                                            onChange={(e) => setWizardForm({ ...wizardForm, district: e.target.value })}
+                                            className="col-span-1 border border-charcoal-200 text-sm rounded-sm px-3 py-3 shadow-sm font-medium outline-none focus:border-brand-500"
+                                        >
                                             <option>Ayawaso West</option>
                                             <option>Osu Klottey</option>
                                         </select>
@@ -226,7 +289,7 @@ export function OwnerListings() {
 
                                     <div className="relative h-48 w-full bg-blue-50 border border-blue-200 rounded-sm overflow-hidden flex items-center justify-center group cursor-pointer">
                                         <div className="absolute inset-0 opacity-20" style={{ backgroundImage: "radial-gradient(#94a3b8 1px, transparent 1px)", backgroundSize: "20px 20px" }}></div>
-                                        {privacyMode ? (
+                                        {wizardForm.privacyMode ? (
                                             <div className="relative h-24 w-24 rounded-full bg-brand-600/20 border-2 border-brand-500 flex items-center justify-center animate-pulse">
                                                 <span className="text-[10px] font-bold text-brand-800 uppercase tracking-widest text-center leading-tight bg-white/80 px-2 py-1 rounded-sm">500m<br/>Radius</span>
                                             </div>
@@ -241,10 +304,10 @@ export function OwnerListings() {
                                     <div className="bg-charcoal-50 border border-charcoal-200 rounded-sm p-4 flex items-start gap-3">
                                         <div className="shrink-0 pt-0.5">
                                             <div
-                                                className={`w-10 h-5 rounded-full p-0.5 transition-colors cursor-pointer ${privacyMode ? "bg-brand-600" : "bg-charcoal-300"}`}
-                                                onClick={() => setPrivacyMode(!privacyMode)}
+                                                className={`w-10 h-5 rounded-full p-0.5 transition-colors cursor-pointer ${wizardForm.privacyMode ? "bg-brand-600" : "bg-charcoal-300"}`}
+                                                onClick={() => setWizardForm({ ...wizardForm, privacyMode: !wizardForm.privacyMode })}
                                             >
-                                                <div className={`w-4 h-4 rounded-full bg-white shadow-sm transition-transform ${privacyMode ? "translate-x-5" : "translate-x-0"}`}></div>
+                                                <div className={`w-4 h-4 rounded-full bg-white shadow-sm transition-transform ${wizardForm.privacyMode ? "translate-x-5" : "translate-x-0"}`}></div>
                                             </div>
                                         </div>
                                         <div>
@@ -263,12 +326,25 @@ export function OwnerListings() {
                                         <p className="text-sm text-charcoal-500">Select local value-add features that drive conversions in Ghana.</p>
                                     </div>
                                     <div className="grid grid-cols-2 gap-3">
-                                        {['Walled & Gated', 'Borehole Access', 'Prepaid Meter', 'Constant Water Flow', 'Proximity to Trotro', 'Tarred Road Access', 'Registered Land Title', 'Security Guard Post'].map((feature, i) => (
-                                            <label key={feature} className="flex items-center gap-3 p-3 border border-charcoal-200 rounded-sm cursor-pointer hover:bg-charcoal-50 transition-colors">
-                                                <input type="checkbox" className="h-4 w-4 text-brand-600 rounded-sm border-charcoal-300 focus:ring-brand-500" defaultChecked={i < 3} />
-                                                <span className="text-sm font-semibold text-charcoal-800">{feature}</span>
-                                            </label>
-                                        ))}
+                                        {['Walled & Gated', 'Borehole Access', 'Prepaid Meter', 'Constant Water Flow', 'Proximity to Trotro', 'Tarred Road Access', 'Registered Land Title', 'Security Guard Post'].map((feature) => {
+                                            const checked = wizardForm.features.includes(feature);
+                                            return (
+                                                <label key={feature} className="flex items-center gap-3 p-3 border border-charcoal-200 rounded-sm cursor-pointer hover:bg-charcoal-50 transition-colors">
+                                                    <input
+                                                        type="checkbox"
+                                                        className="h-4 w-4 text-brand-600 rounded-sm border-charcoal-300 focus:ring-brand-500"
+                                                        checked={checked}
+                                                        onChange={() => {
+                                                            const next = checked
+                                                                ? wizardForm.features.filter((f) => f !== feature)
+                                                                : [...wizardForm.features, feature];
+                                                            setWizardForm({ ...wizardForm, features: next });
+                                                        }}
+                                                    />
+                                                    <span className="text-sm font-semibold text-charcoal-800">{feature}</span>
+                                                </label>
+                                            );
+                                        })}
                                     </div>
                                 </div>
                             )}
@@ -316,15 +392,29 @@ export function OwnerListings() {
 
                             {wizardStep < 4 ? (
                                 <Button
-                                    onClick={() => setWizardStep(wizardStep + 1)}
-                                    className="bg-brand-600 hover:bg-brand-700 text-white font-bold h-11 px-8 shadow-sm"
+                                    onClick={() => {
+                                        const ok = wizardForm.title.trim() !== "" && wizardForm.price !== "";
+                                        if (ok) setWizardStep(wizardStep + 1);
+                                    }}
+                                    disabled={wizardForm.title.trim() === "" || wizardForm.price === ""}
+                                    className="bg-brand-600 hover:bg-brand-700 text-white font-bold h-11 px-8 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     Continue
                                 </Button>
                             ) : (
                                 <Button
                                     onClick={() => {
-                                        alert("Listing saved as Draft! Proceeding to Verification.");
+                                        // TODO: submit wizardForm to API
+                                        setWizardForm({
+                                            listingType: "Rent",
+                                            title: "",
+                                            price: "",
+                                            category: "Plot of Land",
+                                            region: "Greater Accra",
+                                            district: "Ayawaso West",
+                                            privacyMode: false,
+                                            features: ["Walled & Gated", "Borehole Access", "Prepaid Meter"],
+                                        });
                                         setWizardStep(0);
                                     }}
                                     className="bg-brand-600 hover:bg-brand-700 text-white font-bold h-11 px-8 shadow-sm"
