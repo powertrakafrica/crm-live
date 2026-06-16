@@ -5,8 +5,9 @@ import Link from "next/link";
 import { ArrowLeft, SlidersHorizontal, Search, ChevronLeft, ChevronRight, MapPin, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import PropertyCard from "@/components/PropertyCard";
+import InteractiveMap from "@/components/InteractiveMap";
 import { propertiesApi } from "@/lib/api";
-import { CONSTITUENCIES, getConstituencyById } from "@/lib/data";
+import { CONSTITUENCIES, REGIONS, getConstituencyById, getRegionById } from "@/lib/data";
 
 interface ApiProperty {
     id: number;
@@ -19,6 +20,8 @@ interface ApiProperty {
     images?: { url: string }[];
     isVerified: boolean;
     category: string;
+    gpsLatitude?: string | null;
+    gpsLongitude?: string | null;
 }
 
 export default function ConstituencyPage({ params }: { params: Promise<{ constituencyId: string }> }) {
@@ -30,6 +33,8 @@ export default function ConstituencyPage({ params }: { params: Promise<{ constit
 
     const constituencyName = constituency?.name ?? decodeURIComponent(constituencyId);
     const districts = constituency?.districts ?? ["Main District"];
+    const parentRegion = getRegionById(constituency?.regionId ?? "") ?? REGIONS.find((r) => r.id === constituency?.regionId);
+    const parentRegionName = parentRegion?.name;
 
     const [properties, setProperties] = useState<ApiProperty[]>([]);
     const [total, setTotal] = useState(0);
@@ -91,9 +96,9 @@ export default function ConstituencyPage({ params }: { params: Promise<{ constit
             <div className="bg-white border-b border-slate-200 pt-8 pb-6 px-4 sm:px-6 lg:px-8 sticky top-20 z-40">
                 <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-end justify-between gap-6">
                     <div>
-                        <Link href="/" className="inline-flex items-center gap-2 text-sm font-bold text-slate-500 hover:text-slate-900 mb-4 transition-colors uppercase tracking-wide">
+                        <Link href={`/region/${constituency?.regionId ?? ""}`} className="inline-flex items-center gap-2 text-sm font-bold text-slate-500 hover:text-slate-900 mb-4 transition-colors uppercase tracking-wide">
                             <ArrowLeft className="h-4 w-4" />
-                            Back to Regions
+                            Back to {parentRegionName ?? "Region"}
                         </Link>
                         <h1 className="text-3xl font-heading font-bold tracking-tight text-slate-950">
                             {constituencyName}
@@ -148,6 +153,28 @@ export default function ConstituencyPage({ params }: { params: Promise<{ constit
                             {district}
                         </button>
                     ))}
+                </div>
+            </div>
+
+            {/* Map Area */}
+            <div className="px-4 sm:px-6 lg:px-8 py-6 bg-white border-b border-slate-200">
+                <div className="max-w-7xl mx-auto">
+                    <InteractiveMap
+                        height="h-[300px]"
+                        fitToFeatureName={parentRegionName}
+                        markers={properties
+                            .filter((p) => p.gpsLatitude && p.gpsLongitude)
+                            .map((p) => ({
+                                lat: Number(p.gpsLatitude),
+                                lng: Number(p.gpsLongitude),
+                                label: p.title,
+                            }))}
+                    />
+                    {parentRegionName && (
+                        <p className="text-xs text-slate-500 mt-2 font-medium">
+                            Showing {parentRegionName} region map with property markers. Constituency boundary data not yet available.
+                        </p>
+                    )}
                 </div>
             </div>
 

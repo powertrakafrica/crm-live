@@ -20,6 +20,8 @@ interface FeaturedProperty {
     images?: { url: string }[];
     isVerified: boolean;
     category: string;
+    gpsLatitude?: string | null;
+    gpsLongitude?: string | null;
 }
 
 export default function RegionPage({ params }: { params: Promise<{ regionId: string }> }) {
@@ -108,7 +110,18 @@ export default function RegionPage({ params }: { params: Promise<{ regionId: str
 
                     {/* Left Column: Local Map */}
                     <div className="lg:col-span-2 bg-white rounded-xl p-2 sm:p-4 shadow-sm border border-slate-200 flex flex-col h-full">
-                        <InteractiveMap height="flex-1 min-h-[400px]" />
+                        <InteractiveMap
+                            height="flex-1 min-h-[400px]"
+                            highlightFeatureName={regionName}
+                            fitToFeatureName={regionName}
+                            markers={featured
+                                .filter((p) => p.gpsLatitude && p.gpsLongitude)
+                                .map((p) => ({
+                                    lat: Number(p.gpsLatitude),
+                                    lng: Number(p.gpsLongitude),
+                                    label: p.title,
+                                }))}
+                        />
                     </div>
 
                     {/* Right Column: Constituency List */}
