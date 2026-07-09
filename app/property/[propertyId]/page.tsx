@@ -107,17 +107,17 @@ export default function PropertyPage({ params }: { params: Promise<{ propertyId:
 
     const handleWhatsAppClick = async () => {
         if (!ownerPhone || !property?.owner?.id) return;
-        const token = typeof window !== "undefined" ? localStorage.getItem("teps_access_token") : null;
-        if (token) {
-            try {
-                await messageApi.createThread({
-                    participant2Id: property.owner.id,
-                    propertyId: property.id,
-                    threadType: "Property",
-                });
-            } catch {
-                // Non-blocking
-            }
+        // Best-effort: create a message thread if the visitor is logged in
+        // (the access cookie is sent automatically). A logged-out 401 is
+        // swallowed here — the WhatsApp link still opens regardless.
+        try {
+            await messageApi.createThread({
+                participant2Id: property.owner.id,
+                propertyId: property.id,
+                threadType: "Property",
+            });
+        } catch {
+            // Non-blocking
         }
         window.open(`https://wa.me/${ownerPhone.replace(/\+/g, "")}?text=${whatsappMsg}`, "_blank");
     };
