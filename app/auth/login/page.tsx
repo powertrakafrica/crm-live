@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { ShieldCheck, Eye, EyeOff, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { api } from "@/lib/api";
+import { getCrmUrl } from "@/lib/crmUrl";
 
 export default function LoginPage() {
     const router = useRouter();
@@ -21,9 +22,8 @@ export default function LoginPage() {
         setError("");
         try {
             const result = await api.login({ email, password });
-            localStorage.setItem("teps_access_token", result.accessToken);
-            localStorage.setItem("teps_refresh_token", result.refreshToken);
-            document.cookie = `teps_auth=${result.accessToken}; path=/; max-age=604800; SameSite=Lax`;
+            // The backend sets the HttpOnly access + refresh cookies via Set-Cookie;
+            // there is nothing to persist client-side.
             window.dispatchEvent(new Event("teps-auth-changed"));
 
             const user = result.user as { role: string; isOnboardingComplete?: boolean } | undefined;
@@ -33,7 +33,7 @@ export default function LoginPage() {
             if (redirect) {
                 router.push(redirect);
             } else if (role === "admin") {
-                const crmUrl = process.env.NEXT_PUBLIC_CRM_URL || "http://localhost:3000";
+                const crmUrl = getCrmUrl();
                 window.location.href = crmUrl;
             } else if (role === "agent" && user?.isOnboardingComplete === false) {
                 router.push("/onboarding");

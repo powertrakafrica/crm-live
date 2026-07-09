@@ -14,7 +14,7 @@ import {
     Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { profileApi } from "@/lib/api";
+import { api, profileApi } from "@/lib/api";
 
 const ALL_LANGUAGES = ["English", "Twi", "Ga", "Ewe", "Fante", "Dagbani", "Hausa"];
 const ALL_SPECIALTIES = [
@@ -47,10 +47,10 @@ export default function OnboardingPage() {
     const [momoNetwork, setMomoNetwork] = useState("");
 
     useEffect(() => {
-        const token = localStorage.getItem("teps_access_token");
-        if (!token) {
-            router.push("/auth/login");
-        }
+        // Defense-in-depth: middleware already gates this route on the access
+        // cookie. Confirm server-side that the session is live (the cookie may
+        // have expired); redirect to login if /me can't be satisfied.
+        void api.me().catch(() => router.push("/auth/login"));
     }, [router]);
 
     const toggleConstituency = (c: string) => {

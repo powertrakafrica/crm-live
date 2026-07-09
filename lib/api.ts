@@ -5,19 +5,16 @@ export interface ApiError {
     status: number;
 }
 
+// Auth tokens live in HttpOnly cookies set by the backend; `credentials: "include"`
+// attaches them automatically. Nothing auth-related is stored in JS-readable
+// storage, so there is no Bearer header to build and no localStorage to read.
 let isRefreshing = false;
-let refreshPromise: Promise<string | null> | null = null;
-
-function getAuthHeader(): Record<string, string> {
-    if (typeof window === "undefined") return {};
-    const token = localStorage.getItem("teps_access_token");
-    return token ? { Authorization: `Bearer ${token}` } : {};
-}
+let refreshPromise: Promise<boolean> | null = null;
 
 async function fetchJsonRaw<T>(path: string, options?: RequestInit): Promise<T> {
     const res = await fetch(`${API_BASE}${path}`, {
         credentials: "include",
-        headers: { "Content-Type": "application/json", ...getAuthHeader() },
+        headers: { "Content-Type": "application/json" },
         ...options,
     });
     const data = await res.json().catch(() => ({ error: "Network error" }));
@@ -36,9 +33,9 @@ async function fetchJson<T>(path: string, options?: RequestInit, retried = false
         return await fetchJsonRaw<T>(path, options);
     } catch (err: unknown) {
         if (hasStatus(err) && err.status === 401 && !retried) {
-            const newToken = await refreshAccessToken();
-            if (!newToken) {
-                clearAuthAndRedirect();
+            const refreshed = await refreshAccessToken();
+            if (!refreshed) {
+                void clearAuthAndRedirect();
                 throw err;
             }
             return fetchJson<T>(path, options, true);
@@ -47,27 +44,20 @@ async function fetchJson<T>(path: string, options?: RequestInit, retried = false
     }
 }
 
-async function refreshAccessToken(): Promise<string | null> {
-    const refreshToken = typeof window !== "undefined" ? localStorage.getItem("teps_refresh_token") : null;
-    if (!refreshToken) return null;
+async function refreshAccessToken(): Promise<boolean> {
+    // The refresh token rides the teps_refresh_token HttpOnly cookie
+    // (credentials: "include"); no body needed. On success the backend re-sets
+    // the access cookie, so there is nothing for us to persist.
+    if (typeof window === "undefined") return false;
 
     if (isRefreshing && refreshPromise) {
         return refreshPromise;
     }
 
     isRefreshing = true;
-    refreshPromise = fetchJsonRaw<{ accessToken: string }>("/auth/refresh", {
-        method: "POST",
-        body: JSON.stringify({ refreshToken }),
-    })
-        .then((result) => {
-            localStorage.setItem("teps_access_token", result.accessToken);
-            document.cookie = `teps_auth=${result.accessToken}; path=/; max-age=604800; SameSite=Lax`;
-            return result.accessToken;
-        })
-        .catch(() => {
-            return null;
-        })
+    refreshPromise = fetchJsonRaw<{ user: unknown }>("/auth/refresh", { method: "POST" })
+        .then(() => true)
+        .catch(() => false)
         .finally(() => {
             isRefreshing = false;
             refreshPromise = null;
@@ -76,11 +66,29 @@ async function refreshAccessToken(): Promise<string | null> {
     return refreshPromise;
 }
 
-function clearAuthAndRedirect() {
+async function fetchMe(): Promise<unknown> {
+    // `me()` is a *probe* ("is anyone logged in?"), NOT an authenticated data
+    // call. A 401 is the normal "logged out" answer, so it must NEVER trigger the
+    // redirect-to-login path — doing so (with a full page reload) from the login
+    // page would remount the app, re-probe, and loop ~3 requests/second until the
+    // rate limiter fires (429). Here we try one silent refresh (so an expired
+    // access cookie + a live refresh cookie still auto-logs the user in), then
+    // either return the user or rethrow — the caller decides what a 401 means.
+    try {
+        return await fetchJsonRaw<unknown>("/auth/me");
+    } catch (err) {
+        if (hasStatus(err) && err.status === 401 && await refreshAccessToken()) {
+            return fetchJsonRaw<unknown>("/auth/me");
+        }
+        throw err;
+    }
+}
+
+async function clearAuthAndRedirect(): Promise<void> {
     if (typeof window === "undefined") return;
-    localStorage.removeItem("teps_access_token");
-    localStorage.removeItem("teps_refresh_token");
-    document.cookie = "teps_auth=; path=/; max-age=0; SameSite=Lax";
+    // Ask the backend to revoke the session + clear both cookies. Best-effort:
+    // redirect regardless so a stuck logout can't trap the user.
+    await api.logout().catch(() => {});
     window.location.href = "/auth/login";
 }
 
@@ -88,7 +96,7 @@ function clearAuthAndRedirect() {
 
 export const api = {
     login: (body: { email: string; password: string }) =>
-        fetchJsonRaw<{ user: unknown; accessToken: string; refreshToken: string }>("/auth/login", {
+        fetchJsonRaw<{ user: unknown }>("/auth/login", {
             method: "POST",
             body: JSON.stringify(body),
         }),
@@ -97,7 +105,7 @@ export const api = {
             method: "POST",
             body: JSON.stringify(body),
         }),
-    me: () => fetchJson<unknown>("/auth/me"),
+    me: () => fetchMe(),
     logout: () => fetchJsonRaw<{ message: string }>("/auth/logout", { method: "POST" }),
 };
 
@@ -193,7 +201,6 @@ export const uploadApi = {
         return fetch(`${API_BASE}/upload/image`, {
             method: "POST",
             credentials: "include",
-            headers: getAuthHeader(),
             body: form,
         }).then((r) => r.json());
     },
@@ -203,7 +210,6 @@ export const uploadApi = {
         return fetch(`${API_BASE}/upload/document`, {
             method: "POST",
             credentials: "include",
-            headers: getAuthHeader(),
             body: form,
         }).then((r) => r.json());
     },

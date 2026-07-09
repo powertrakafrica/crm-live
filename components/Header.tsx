@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Search, Menu, UserCircle, LogOut, ChevronDown, LayoutDashboard, Building2, X, Home, MapPin, Users } from "lucide-react";
 import { Button } from "./ui/Button";
+import { api } from "@/lib/api";
+import { getCrmUrl } from "@/lib/crmUrl";
 
 interface AuthUser {
     id: number;
@@ -21,27 +23,43 @@ export default function Header() {
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
 
-    function checkAuth() {
-        const token = localStorage.getItem("teps_access_token");
-        const wasLoggedIn = isLoggedIn;
-        const nowLoggedIn = !!token;
-        if (wasLoggedIn !== nowLoggedIn) {
-            setIsLoggedIn(nowLoggedIn);
-            if (nowLoggedIn) fetchUser();
-            else setUser(null);
+    // Determine login state from the backend (cookies, no JS-readable token).
+    // A 401 on /me may just mean the 15m access cookie expired while the 7d
+    // refresh cookie is still valid — so attempt one refresh+retry before
+    // concluding logged-out. This path must NOT use lib/api's fetchJson,
+    // whose 401 handler redirects to /auth/login on refresh failure — that
+    // would bounce genuinely logged-out visitors off public pages.
+    async function fetchUser(): Promise<AuthUser | null> {
+        const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:9001/api";
+        try {
+            let res = await fetch(`${API_BASE}/auth/me`, { credentials: "include" });
+            if (res.status === 401) {
+                const refreshRes = await fetch(`${API_BASE}/auth/refresh`, {
+                    method: "POST",
+                    credentials: "include",
+                });
+                if (refreshRes.ok) {
+                    res = await fetch(`${API_BASE}/auth/me`, { credentials: "include" });
+                }
+            }
+            if (!res.ok) return null;
+            return (await res.json()) as AuthUser;
+        } catch {
+            return null;
         }
     }
 
+    async function syncAuth() {
+        const u = await fetchUser();
+        setIsLoggedIn(!!u);
+        setUser(u);
+    }
+
     useEffect(() => {
-        checkAuth();
-        window.addEventListener("storage", checkAuth);
-        window.addEventListener("focus", checkAuth);
-        window.addEventListener("teps-auth-changed", checkAuth);
-        return () => {
-            window.removeEventListener("storage", checkAuth);
-            window.removeEventListener("focus", checkAuth);
-            window.removeEventListener("teps-auth-changed", checkAuth);
-        };
+        void syncAuth();
+        const onAuthChanged = () => void syncAuth();
+        window.addEventListener("teps-auth-changed", onAuthChanged);
+        return () => window.removeEventListener("teps-auth-changed", onAuthChanged);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
@@ -55,26 +73,9 @@ export default function Header() {
         return () => document.removeEventListener("mousedown", handleClickOutside);
     }, []);
 
-    async function fetchUser() {
-        try {
-            const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:9001/api";
-            const token = localStorage.getItem("teps_access_token");
-            const res = await fetch(`${API_BASE}/auth/me`, {
-                headers: token ? { Authorization: `Bearer ${token}` } : {},
-            });
-            if (res.ok) {
-                const data = await res.json();
-                setUser(data as AuthUser);
-            }
-        } catch {
-            // ignore
-        }
-    }
-
-    function handleLogout() {
-        localStorage.removeItem("teps_access_token");
-        localStorage.removeItem("teps_refresh_token");
-        document.cookie = "teps_auth=; path=/; max-age=0; SameSite=Lax";
+    async function handleLogout() {
+        // Revokes the server session + clears both HttpOnly cookies.
+        await api.logout().catch(() => {});
         window.dispatchEvent(new Event("teps-auth-changed"));
         setIsLoggedIn(false);
         setUser(null);
@@ -87,7 +88,7 @@ export default function Header() {
             case "agent": return "/agent";
             case "client": return "/client";
             case "owner": return "/owner";
-            case "admin": return process.env.NEXT_PUBLIC_CRM_URL || "http://localhost:3000";
+            case "admin": return getCrmUrl();
             default: return "/";
         }
     }
