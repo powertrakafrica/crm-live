@@ -13,7 +13,7 @@ interface EarningsData {
     payouts: unknown[];
 }
 
-export function AgentOverview() {
+export function AgentOverview({ regionLabel }: { regionLabel?: string }) {
     const [earnings, setEarnings] = useState<EarningsData | null>(null);
     const [loading, setLoading] = useState(true);
 
@@ -58,7 +58,7 @@ export function AgentOverview() {
                     </div>
                     <div className="flex items-center gap-2 text-sm font-bold bg-brand-50 text-brand-700 px-3 py-1.5 rounded-sm border border-brand-200">
                         <MapPin className="h-4 w-4" />
-                        Greater Accra
+                        {regionLabel ?? "Ghana"}
                     </div>
                 </div>
                 <div className="rounded-sm overflow-hidden border border-charcoal-200">

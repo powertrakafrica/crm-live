@@ -14,12 +14,14 @@ import { AgentListings } from "./components/AgentListings";
 import { AgentEarnings } from "./components/AgentEarnings";
 import { AgentProfile } from "./components/AgentProfile";
 import { agentApi, profileApi } from "@/lib/api";
+import { useGeoRegions } from "@/lib/hooks/geo";
+import { coverageHeaderLabel, coverageToItems, type CoverageItem } from "@/lib/coverage";
 
 type TabId = "overview" | "tickets" | "verification" | "listings" | "earnings" | "profile";
 
 export default function AgentPortal() {
     const [activeTab, setActiveTab] = useState<TabId>("overview");
-    const [agentProfile, setAgentProfile] = useState<{ coverageAreas?: string | null; fullName?: string } | null>(null);
+    const [agentProfile, setAgentProfile] = useState<{ coverage?: { items: CoverageItem[] }; fullName?: string } | null>(null);
     const [activeLeads, setActiveLeads] = useState(0);
     const [headerLoading, setHeaderLoading] = useState(true);
 
@@ -30,13 +32,16 @@ export default function AgentPortal() {
         ]).finally(() => setHeaderLoading(false));
     }, []);
 
+    const { data: regions } = useGeoRegions();
+
     const initials = agentProfile?.fullName
         ? agentProfile.fullName.split(" ").map((w: string) => w[0]).join("").slice(0, 2).toUpperCase()
         : "AG";
 
-    const assignedRegion = agentProfile?.coverageAreas
-        ? agentProfile.coverageAreas.split(",")[0]?.trim() ?? "Ghana"
-        : "Ghana";
+    const assignedRegion = coverageHeaderLabel(
+        coverageToItems(agentProfile?.coverage),
+        regions,
+    );
 
     const navItems = [
         { id: "overview" as TabId, label: "Overview & Map", icon: Map },
@@ -102,7 +107,7 @@ export default function AgentPortal() {
 
                     {/* Main Content */}
                     <div className="xl:col-span-3 min-h-[600px] animate-fade-in">
-                        {activeTab === "overview" && <AgentOverview />}
+                        {activeTab === "overview" && <AgentOverview regionLabel={assignedRegion} />}
                         {activeTab === "tickets" && <AgentTickets />}
                         {activeTab === "verification" && <AgentVerification />}
                         {activeTab === "listings" && <AgentListings />}
