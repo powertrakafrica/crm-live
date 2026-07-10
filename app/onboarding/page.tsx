@@ -15,6 +15,8 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { api, profileApi } from "@/lib/api";
+import { CoveragePicker } from "@/app/(portals)/agent/components/CoveragePicker";
+import { itemsToCoverage, type CoverageItem } from "@/lib/coverage";
 
 const ALL_LANGUAGES = ["English", "Twi", "Ga", "Ewe", "Fante", "Dagbani", "Hausa"];
 const ALL_SPECIALTIES = [
@@ -24,14 +26,6 @@ const ALL_SPECIALTIES = [
     "Land & Plots",
     "Rent-to-Own Deals",
 ];
-const ALL_CONSTITUENCIES = [
-    "Ayawaso West",
-    "Okaikwei North",
-    "Ablekuma Central",
-    "Korle Klottey",
-    "Nhyiaeso",
-    "Oforikrom",
-];
 const MOMO_NETWORKS = ["MTN", "Vodafone", "AirtelTigo"];
 
 export default function OnboardingPage() {
@@ -40,7 +34,7 @@ export default function OnboardingPage() {
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState("");
 
-    const [selectedConstituencies, setSelectedConstituencies] = useState<string[]>([]);
+    const [coverageItems, setCoverageItems] = useState<CoverageItem[]>([]);
     const [selectedLanguages, setSelectedLanguages] = useState<string[]>([]);
     const [selectedSpecialties, setSelectedSpecialties] = useState<string[]>([]);
     const [momoNumber, setMomoNumber] = useState("");
@@ -52,12 +46,6 @@ export default function OnboardingPage() {
         // have expired); redirect to login if /me can't be satisfied.
         void api.me().catch(() => router.push("/auth/login"));
     }, [router]);
-
-    const toggleConstituency = (c: string) => {
-        setSelectedConstituencies((prev) =>
-            prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]
-        );
-    };
 
     const toggleLanguage = (l: string) => {
         setSelectedLanguages((prev) =>
@@ -72,7 +60,7 @@ export default function OnboardingPage() {
     };
 
     const canProceed = () => {
-        if (step === 1) return selectedConstituencies.length > 0;
+        if (step === 1) return coverageItems.length > 0;
         if (step === 2) return selectedLanguages.length > 0 && selectedSpecialties.length > 0;
         if (step === 3) return momoNumber.length >= 10 && momoNetwork !== "";
         return true;
@@ -83,7 +71,7 @@ export default function OnboardingPage() {
         setError("");
         try {
             await profileApi.updateAgentProfile({
-                coverageAreas: selectedConstituencies.join(","),
+                coverage: itemsToCoverage(coverageItems),
                 languages: selectedLanguages.join(","),
                 specialties: selectedSpecialties.join(","),
                 momoNumber,
@@ -148,38 +136,14 @@ export default function OnboardingPage() {
                                 </div>
                                 <div>
                                     <h2 className="text-lg font-bold text-slate-900">Coverage Area</h2>
-                                    <p className="text-sm text-slate-500">Select the constituencies you want to cover</p>
+                                    <p className="text-sm text-slate-500">Select the regions and constituencies you want to cover</p>
                                 </div>
                             </div>
 
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                {ALL_CONSTITUENCIES.map((c) => {
-                                    const selected = selectedConstituencies.includes(c);
-                                    return (
-                                        <button
-                                            key={c}
-                                            type="button"
-                                            onClick={() => toggleConstituency(c)}
-                                            className={`flex items-center gap-3 p-4 rounded-xl border-2 transition-all text-left ${
-                                                selected
-                                                    ? "border-brand-500 bg-brand-50"
-                                                    : "border-slate-200 hover:border-slate-300 bg-white"
-                                            }`}
-                                        >
-                                            <div
-                                                className={`h-5 w-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
-                                                    selected ? "border-brand-500 bg-brand-500" : "border-slate-300"
-                                                }`}
-                                            >
-                                                {selected && <CheckCircle className="h-3.5 w-3.5 text-white" />}
-                                            </div>
-                                            <span className={`font-semibold text-sm ${selected ? "text-brand-900" : "text-slate-700"}`}>
-                                                {c}
-                                            </span>
-                                        </button>
-                                    );
-                                })}
-                            </div>
+                            <CoveragePicker
+                                value={coverageItems}
+                                onChange={setCoverageItems}
+                            />
                         </div>
                     )}
 
