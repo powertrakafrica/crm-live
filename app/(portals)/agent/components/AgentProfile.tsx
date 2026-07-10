@@ -169,7 +169,7 @@ export function AgentProfile() {
     } catch (err: any) {
       const msg = err?.message || "Save failed";
       setError(msg);
-      if (err?.status === 400) setCoverageErrors([msg]);
+      setCoverageErrors(err?.status === 400 ? [msg] : []);
     } finally {
       setSaving(false);
     }

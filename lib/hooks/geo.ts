@@ -75,6 +75,7 @@ export function useConstituencies(regionId: number | null) {
   const [loading, setLoading] = useState<boolean>(regionId != null);
   const [error, setError] = useState("");
   const [prevRegionId, setPrevRegionId] = useState<number | null>(regionId);
+  const [nonce, setNonce] = useState(0);
 
   // React-blessed "adjust state during render" when the prop changes: clears
   // stale data and sets loading for the new region WITHOUT calling setState
@@ -108,7 +109,19 @@ export function useConstituencies(regionId: number | null) {
     return () => {
       alive = false;
     };
-  }, [regionId]);
+  }, [regionId, nonce]);
 
-  return { data, loading, error };
+  // `retry` runs in an event handler (allowed). It drops the cached promise for
+  // this region so the next fetch re-hits the API, and bumps `nonce` to re-run
+  // the effect without touching `regionId` (so the adjust-during-render block
+  // does not fire).
+  const retry = () => {
+    if (regionId == null) return;
+    constituenciesCache.delete(regionId);
+    setLoading(true);
+    setError("");
+    setNonce((n) => n + 1);
+  };
+
+  return { data, loading, error, retry };
 }
