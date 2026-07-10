@@ -23,6 +23,8 @@ import {
   CardDescription,
 } from "@/components/ui/Card";
 import { profileApi, uploadApi } from "@/lib/api";
+import { CoveragePicker } from "./CoveragePicker";
+import { coverageToItems, itemsToCoverage, type CoverageItem } from "@/lib/coverage";
 
 interface UserProfile {
   id: number;
@@ -38,7 +40,7 @@ interface UserProfile {
 
 interface AgentProfile {
   agentId: number;
-  coverageAreas: string | null;
+  coverage?: { items: CoverageItem[] };
   languages: string | null;
   specialties: string | null;
   momoNumber: string | null;
@@ -63,15 +65,6 @@ const ALL_SPECIALTIES = [
   "Land & Plots",
   "Rent-to-Own Deals",
 ];
-const ALL_CONSTITUENCIES = [
-  "Ayawaso West",
-  "Okaikwei North",
-  "Ablekuma Central",
-  "Korle Klottey",
-  "Nhyiaeso",
-  "Oforikrom",
-];
-
 function initials(name: string) {
   return name
     .split(" ")
@@ -102,10 +95,8 @@ export function AgentProfile() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
-  const [primaryRegion, setPrimaryRegion] = useState("greater-accra");
-  const [selectedConstituencies, setSelectedConstituencies] = useState<
-    string[]
-  >([]);
+  const [coverageItems, setCoverageItems] = useState<CoverageItem[]>([]);
+  const [coverageErrors, setCoverageErrors] = useState<string[]>([]);
   const [selectedLanguages, setSelectedLanguages] = useState<string[]>([]);
   const [selectedSpecialties, setSelectedSpecialties] = useState<string[]>([]);
 
@@ -141,7 +132,7 @@ export function AgentProfile() {
         setUserProfile(user);
         setAgentProfile(agent);
         if (agent) {
-          setSelectedConstituencies(splitCsv(agent.coverageAreas));
+          setCoverageItems(coverageToItems(agent.coverage));
           setSelectedLanguages(splitCsv(agent.languages));
           setSelectedSpecialties(splitCsv(agent.specialties));
         }
@@ -149,12 +140,6 @@ export function AgentProfile() {
       .catch((err: any) => setError(err.message || "Failed to load profile"))
       .finally(() => setLoading(false));
   }, []);
-
-  const toggleConstituency = (c: string) => {
-    setSelectedConstituencies((prev) =>
-      prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c],
-    );
-  };
 
   const toggleLanguage = (l: string) => {
     setSelectedLanguages((prev) =>
@@ -173,15 +158,18 @@ export function AgentProfile() {
     setError("");
     try {
       await profileApi.updateAgentProfile({
-        coverageAreas: selectedConstituencies.join(","),
+        coverage: itemsToCoverage(coverageItems),
         languages: selectedLanguages.join(","),
         specialties: selectedSpecialties.join(","),
         isOnboardingComplete: true,
       });
+      setCoverageErrors([]);
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     } catch (err: any) {
-      setError(err.message || "Save failed");
+      const msg = err?.message || "Save failed";
+      setError(msg);
+      if (err?.status === 400) setCoverageErrors([msg]);
     } finally {
       setSaving(false);
     }
@@ -512,71 +500,11 @@ export function AgentProfile() {
               </CardDescription>
             </CardHeader>
             <CardContent className="p-6 space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="text-xs font-bold uppercase tracking-wider text-charcoal-500">
-                    Primary Region
-                  </label>
-                  <select
-                    className="w-full bg-white border border-charcoal-200 focus:border-brand-500 focus:ring-1 focus:ring-brand-500 text-sm rounded-sm px-3 py-2 outline-none font-bold text-charcoal-900"
-                    value={primaryRegion}
-                    onChange={(e) => setPrimaryRegion(e.target.value)}
-                  >
-                    <option value="greater-accra">Greater Accra</option>
-                    <option value="ashanti">Ashanti</option>
-                    <option value="western">Western</option>
-                    <option value="eastern">Eastern</option>
-                    <option value="central">Central</option>
-                    <option value="volta">Volta</option>
-                    <option value="northern">Northern</option>
-                  </select>
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-bold uppercase tracking-wider text-charcoal-500">
-                    Active Constituencies
-                  </label>
-                  <div className="flex flex-wrap gap-2 pt-1 border border-charcoal-200 rounded-sm p-2 min-h-10.5 bg-charcoal-50">
-                    {selectedConstituencies.map((c) => (
-                      <span
-                        key={c}
-                        className="bg-white border border-brand-200 text-brand-800 text-xs font-bold px-2 py-1 rounded-sm shadow-sm flex items-center gap-1"
-                      >
-                        {c}
-                        <button
-                          type="button"
-                          onClick={() => toggleConstituency(c)}
-                          className="text-brand-400 font-normal hover:text-red-500 cursor-pointer text-[10px] ml-1"
-                        >
-                          ✕
-                        </button>
-                      </span>
-                    ))}
-                    {ALL_CONSTITUENCIES.filter(
-                      (c) => !selectedConstituencies.includes(c),
-                    ).length > 0 && (
-                      <div className="relative group">
-                        <span className="text-xs text-charcoal-400 italic flex items-center gap-1 px-1 font-medium cursor-pointer hover:text-brand-600">
-                          + Add more
-                        </span>
-                        <div className="absolute left-0 top-full mt-1 hidden group-hover:block bg-white border border-charcoal-200 rounded-sm shadow-lg z-10 p-2 w-48 max-h-40 overflow-y-auto">
-                          {ALL_CONSTITUENCIES.filter(
-                            (c) => !selectedConstituencies.includes(c),
-                          ).map((c) => (
-                            <button
-                              key={c}
-                              type="button"
-                              onClick={() => toggleConstituency(c)}
-                              className="block w-full text-left text-sm font-medium text-charcoal-700 hover:bg-charcoal-50 px-2 py-1 rounded-sm"
-                            >
-                              {c}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
+              <CoveragePicker
+                value={coverageItems}
+                onChange={setCoverageItems}
+                errors={coverageErrors}
+              />
             </CardContent>
           </Card>
 
