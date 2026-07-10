@@ -1,3 +1,5 @@
+import type { GeoRegion, GeoConstituency } from "./coverage";
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:9001/api";
 
 export interface ApiError {
@@ -271,6 +273,20 @@ export const profileApi = {
         return fetchJson<unknown>(path);
     },
     updateAgentProfile: (body: Record<string, unknown>) => fetchJson<unknown>("/profile/agent", { method: "PUT", body: JSON.stringify(body) }),
+};
+
+// ─── Geo ─────────────────────────────────────────────
+
+export const geoApi = {
+  regions: (countryCode = "GH") => {
+    const qs = countryCode
+      ? `?countryCode=${encodeURIComponent(countryCode)}`
+      : "";
+    return fetchJson<GeoRegion[]>(`/geo/regions${qs}`);
+  },
+  constituencies: (regionId: number) =>
+    fetchJson<GeoConstituency[]>(`/geo/regions/${regionId}/constituencies`),
+  allConstituencies: () => fetchJson<GeoConstituency[]>(`/geo/constituencies`),
 };
 
 // ─── Verifications ───────────────────────────────────
