@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Compass, Home, Search } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
-
+// not found page
 export default function NotFound() {
   return (
     <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center px-4 py-12 bg-slate-50">
