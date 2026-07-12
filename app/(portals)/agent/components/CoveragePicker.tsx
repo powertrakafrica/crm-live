@@ -21,8 +21,10 @@ export function CoveragePicker({ value, onChange, errors }: CoveragePickerProps)
     const next = regions.find((r) => !used.has(r.id));
     if (next) onChange([...value, { regionId: next.id, constituencyIds: null }]);
   };
-  const setRegion = (index: number, regionId: number) =>
+  const setRegion = (index: number, regionId: number) => {
+    if (value.some((it, i) => i !== index && it.regionId === regionId)) return;
     update(index, { regionId, constituencyIds: null });
+  };
   const toggleWhole = (index: number, whole: boolean) =>
     update(index, { constituencyIds: whole ? null : [] });
   const toggleConstituency = (index: number, id: number) =>
@@ -58,6 +60,7 @@ export function CoveragePicker({ value, onChange, errors }: CoveragePickerProps)
           key={item.regionId}
           item={item}
           regions={regions}
+          usedRegionIds={value.map((it) => it.regionId)}
           onRegionChange={(rid) => setRegion(i, rid)}
           onToggleWhole={(w) => toggleWhole(i, w)}
           onToggleConstituency={(id) => toggleConstituency(i, id)}
@@ -86,6 +89,7 @@ export function CoveragePicker({ value, onChange, errors }: CoveragePickerProps)
 interface CoverageRowProps {
   item: CoverageItem;
   regions: GeoRegion[];
+  usedRegionIds: number[];
   onRegionChange: (regionId: number) => void;
   onToggleWhole: (whole: boolean) => void;
   onToggleConstituency: (id: number) => void;
@@ -95,13 +99,14 @@ interface CoverageRowProps {
 function CoverageRow({
   item,
   regions,
+  usedRegionIds,
   onRegionChange,
   onToggleWhole,
   onToggleConstituency,
   onRemove,
 }: CoverageRowProps) {
   const isWhole = item.constituencyIds === null;
-  const { data: constituencies, loading } = useConstituencies(
+  const { data: constituencies, loading, error, retry } = useConstituencies(
     isWhole ? null : item.regionId,
   );
   return (
@@ -112,8 +117,17 @@ function CoverageRow({
           onChange={(e) => onRegionChange(Number(e.target.value))}
           className="flex-1 bg-white border border-charcoal-200 focus:border-brand-500 focus:ring-1 focus:ring-brand-500 text-sm rounded-sm px-3 py-2 outline-none font-bold text-charcoal-900"
         >
+          {regions.find((r) => r.id === item.regionId) ? null : (
+            <option value={item.regionId} disabled>
+              Region #{item.regionId} (deleted)
+            </option>
+          )}
           {regions.map((r) => (
-            <option key={r.id} value={r.id}>
+            <option
+              key={r.id}
+              value={r.id}
+              disabled={usedRegionIds.includes(r.id) && r.id !== item.regionId}
+            >
               {r.name}
             </option>
           ))}
@@ -139,6 +153,13 @@ function CoverageRow({
         (loading ? (
           <div className="text-xs text-charcoal-400 flex items-center gap-1">
             <Loader2 className="h-3 w-3 animate-spin" /> Loading constituencies…
+          </div>
+        ) : error ? (
+          <div className="text-xs text-red-700">
+            {error}{" "}
+            <button type="button" onClick={retry} className="underline font-bold">
+              Retry
+            </button>
           </div>
         ) : constituencies.length === 0 ? (
           <p className="text-xs text-charcoal-400">
