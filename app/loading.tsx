@@ -1,6 +1,3 @@
-// Route-level loading UI. Next wraps each route segment in a Suspense boundary
-// and renders the nearest loading.tsx while that segment is loading. Kept
-// intentionally lightweight (no data fetching, no client JS) so it paints fast.
 export default function Loading() {
   return (
     <div
