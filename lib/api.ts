@@ -13,6 +13,54 @@ export interface ApiError {
 let isRefreshing = false;
 let refreshPromise: Promise<boolean> | null = null;
 
+// Convert a stored Spaces public URL (https://<endpoint>/<bucket>/<key>) into a
+// backend proxy URL (${API_BASE}/files/<key>) so PRIVATE documents render for
+// authorized viewers (owner / assigned agent / admin). Property documents are
+// NOT in PUBLIC_FOLDERS (only avatars/images are), so their raw CDN URLs 403 —
+// the GET /api/files/* proxy resolves property_documents.url to the owner +
+// assigned agent (+ admin bypass). Opened in a new tab, the HttpOnly auth cookie
+// rides along via credentials:"include" (same as the crm dashboard).
+export function fileProxyUrl(spacesUrl: string | null | undefined): string | null {
+    if (!spacesUrl) return null;
+    try {
+        const u = new URL(spacesUrl);
+        // key = everything after the first path segment (the bucket).
+        const key = u.pathname.replace(/^\//, "").split("/").slice(1).join("/");
+        if (!key) return null;
+        return `${API_BASE}/files/${key}`;
+    } catch {
+        return null;
+    }
+}
+
+// Shape returned by GET /properties/:id/documents (property.service listPropertyDocuments).
+export interface PropertyDocument {
+    createdAt: string;
+    documentType: string;
+    id: number;
+    label: null | string;
+    notes: null | string;
+    reviewedAt: null | string;
+    reviewedByName: null | string;
+    status: "Approved" | "Pending" | "Rejected";
+    uploadedByName: null | string;
+    url: string;
+}
+
+// The 10 document_type enum values (backend DocumentTypeEnum) with display labels.
+export const DOCUMENT_TYPES: { label: string; value: string }[] = [
+    { label: "Title Deed", value: "TitleDeed" },
+    { label: "Indenture", value: "Indenture" },
+    { label: "Sale Agreement", value: "SaleAgreement" },
+    { label: "Site Plan", value: "SitePlan" },
+    { label: "Allocation Letter", value: "AllocationLetter" },
+    { label: "Power of Attorney", value: "PowerOfAttorney" },
+    { label: "Inspection Report", value: "InspectionReport" },
+    { label: "Ghana Card", value: "GhanaCard" },
+    { label: "Passport", value: "Passport" },
+    { label: "Other (specify label)", value: "Other" },
+];
+
 async function fetchJsonRaw<T>(path: string, options?: RequestInit): Promise<T> {
     const res = await fetch(`${API_BASE}${path}`, {
         credentials: "include",
