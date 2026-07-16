@@ -1,12 +1,13 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Plus, X, MapPin, CheckSquare, UploadCloud, CheckCircle2, Globe, ShieldCheck, Home } from "lucide-react";
+import { Plus, X, MapPin, CheckSquare, UploadCloud, CheckCircle2, Globe, ShieldCheck, Home, FileText } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { PhotonSearch } from "@/components/PhotonSearch";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { ownerApi } from "@/lib/api";
+import { OwnerDocumentsModal } from "./OwnerDocumentsModal";
 
 interface OwnerProperty {
     id: number;
@@ -34,6 +35,7 @@ export function OwnerListings() {
     const [listings, setListings] = useState<OwnerProperty[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
+    const [docsFor, setDocsFor] = useState<OwnerProperty | null>(null);
 
     useEffect(() => {
         ownerApi.properties()
@@ -103,11 +105,12 @@ export function OwnerListings() {
                                             <th className="px-6 py-4 font-bold tracking-wider">Type</th>
                                             <th className="px-6 py-4 font-bold tracking-wider">Verification</th>
                                             <th className="px-6 py-4 font-bold tracking-wider">Availability Toggle</th>
+                                            <th className="px-6 py-4 text-right">Documents</th>
                                         </tr>
                                     </thead>
                                     <tbody>
                                         {listings.length === 0 ? (
-                                            <tr><td colSpan={4} className="px-6 py-12 text-center text-charcoal-500 font-medium">No properties found.</td></tr>
+                                            <tr><td colSpan={5} className="px-6 py-12 text-center text-charcoal-500 font-medium">No properties found.</td></tr>
                                         ) : listings.map((item) => (
                                             <tr key={item.id} className="bg-white border-b border-charcoal-100 hover:bg-charcoal-50 transition-colors">
                                                 <td className="px-6 py-4">
@@ -140,6 +143,11 @@ export function OwnerListings() {
                                                         disabled={item.status === "Pending Review"}
                                                     >
                                                         {item.status}
+                                                    </Button>
+                                                </td>
+                                                <td className="px-6 py-4 text-right">
+                                                    <Button variant="outline" size="sm" onClick={() => setDocsFor(item)} className="h-8 font-bold border-charcoal-200 shadow-none text-xs">
+                                                        <FileText className="h-3.5 w-3.5 mr-1" /> Documents
                                                     </Button>
                                                 </td>
                                             </tr>
@@ -425,6 +433,14 @@ export function OwnerListings() {
                         </div>
                     </div>
                 </div>
+            )}
+
+            {docsFor && (
+                <OwnerDocumentsModal
+                    propertyId={docsFor.id}
+                    propertyTitle={docsFor.title}
+                    onClose={() => setDocsFor(null)}
+                />
             )}
         </div>
     );
