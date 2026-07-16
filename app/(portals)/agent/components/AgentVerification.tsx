@@ -4,12 +4,13 @@ import { useState, useEffect, useRef } from "react";
 import {
     MapPin, Camera, Video,
     CheckSquare, UploadCloud, CheckCircle,
-    WifiOff, Send, ShieldCheck, Loader2, X, Image as ImageIcon
+    WifiOff, Send, ShieldCheck, Loader2, X, Image as ImageIcon,
+    FileText, ExternalLink
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
-import { agentApi, uploadApi, verificationApi } from "@/lib/api";
+import { agentApi, uploadApi, verificationApi, propertiesApi, fileProxyUrl, type PropertyDocument } from "@/lib/api";
 
 interface AgentVerificationItem {
     id: number;
@@ -36,6 +37,8 @@ export function AgentVerification() {
     const [uploading, setUploading] = useState(false);
     const [evidence, setEvidence] = useState<EvidenceItem[]>([]);
     const [submitting, setSubmitting] = useState(false);
+    const [propDocs, setPropDocs] = useState<PropertyDocument[]>([]);
+    const [docsLoading, setDocsLoading] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
@@ -62,6 +65,16 @@ export function AgentVerification() {
     }, []);
 
     const activeVerification = verifications.find(v => v.id === selectedId);
+
+    useEffect(() => {
+        if (!activeVerification) { setPropDocs([]); return; }
+        setDocsLoading(true);
+        propertiesApi.listDocuments(activeVerification.propertyId)
+            .then((rows) => setPropDocs(rows as PropertyDocument[]))
+            .catch(() => setPropDocs([]))
+            .finally(() => setDocsLoading(false));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeVerification?.propertyId]);
 
     const getCheckValue = (checks: { checkType: string; status: string }[], key: string) => {
         const found = checks.find(c => c.checkType === key);
@@ -255,6 +268,41 @@ export function AgentVerification() {
                                         </Button>
                                     </div>
                                     {!gpsCheckedIn && <p className="text-xs text-red-500 font-bold mt-4 flex items-center gap-1"><AlertCircle className="h-3 w-3" /> You must be within 50 meters of the property to check in.</p>}
+                                </CardContent>
+                            </Card>
+
+                            {/* Owner's property documents — read-only cross-reference (assigned agent only) */}
+                            <Card className="border-charcoal-200 shadow-sm rounded-sm">
+                                <CardHeader className="p-4 border-b border-charcoal-100">
+                                    <CardTitle className="text-sm font-bold text-charcoal-900 flex items-center gap-2">
+                                        <FileText className="h-4 w-4 text-brand-600" /> Owner&#39;s Property Documents
+                                    </CardTitle>
+                                </CardHeader>
+                                <CardContent className="p-4 space-y-2">
+                                    {docsLoading ? (
+                                        <div className="flex items-center gap-2 text-charcoal-500 text-sm"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</div>
+                                    ) : propDocs.length === 0 ? (
+                                        <p className="text-xs text-charcoal-500 font-medium">The owner has not uploaded any property documents.</p>
+                                    ) : propDocs.map((d) => {
+                                        const href = fileProxyUrl(d.url) ?? undefined;
+                                        const named = d.documentType === "Other" && d.label ? `Other: ${d.label}` : d.documentType;
+                                        return (
+                                            <div key={d.id} className="flex items-center justify-between border border-charcoal-200 rounded-sm p-2.5">
+                                                <div className="min-w-0">
+                                                    <div className="font-bold text-sm text-charcoal-900 truncate">{named}</div>
+                                                    <div className="text-xs text-charcoal-500 mt-0.5 flex items-center gap-2">
+                                                        <Badge variant="outline" className={`text-[10px] px-1.5 py-0 shadow-none ${d.status === "Approved" ? "bg-green-100 text-green-700 border-green-200" : d.status === "Rejected" ? "bg-red-100 text-red-700 border-red-200" : "bg-amber-100 text-amber-700 border-amber-200"}`}>{d.status}</Badge>
+                                                        {d.reviewedByName && <span>· {d.reviewedByName}</span>}
+                                                    </div>
+                                                </div>
+                                                {href && (
+                                                    <a href={href} target="_blank" rel="noopener noreferrer" className="text-xs font-semibold text-brand-600 hover:text-brand-700 inline-flex items-center gap-1 shrink-0">
+                                                        View <ExternalLink className="h-3 w-3" />
+                                                    </a>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
                                 </CardContent>
                             </Card>
 
