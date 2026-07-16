@@ -133,8 +133,12 @@ export const propertiesApi = {
     delete: (id: number) => fetchJson<{ message: string }>(`/properties/${id}`, { method: "DELETE" }),
     addImage: (id: number, body: { url: string; altText?: string; sortOrder?: number; isPrimary?: boolean }) =>
         fetchJson<unknown>(`/properties/${id}/images`, { method: "POST", body: JSON.stringify(body) }),
-    addDocument: (id: number, body: { documentType: string; url: string }) =>
+    addDocument: (id: number, body: { documentType: string; url: string; label?: string }) =>
         fetchJson<unknown>(`/properties/${id}/documents`, { method: "POST", body: JSON.stringify(body) }),
+    deleteDocument: (id: number, docId: number) =>
+        fetchJson<{ message: string }>(`/properties/${id}/documents/${docId}`, { method: "DELETE" }),
+    listDocuments: (id: number) =>
+        fetchJson<unknown[]>(`/properties/${id}/documents`),
 };
 
 // ─── Admin ───────────────────────────────────────────
