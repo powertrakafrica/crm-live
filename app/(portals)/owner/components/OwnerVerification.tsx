@@ -5,7 +5,7 @@ import { ShieldCheck, FileText, UploadCloud, Map, UserCheck, Search, ChevronRigh
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
-import { ownerApi, uploadApi, verificationApi } from "@/lib/api";
+import { fileProxyUrl, ownerApi, uploadApi, verificationApi } from "@/lib/api";
 
 interface OwnerVerificationItem {
     id: number;
@@ -327,14 +327,16 @@ export function OwnerVerification() {
                                                                     </div>
                                                                 </div>
                                                                 {hasEvidence ? (
-                                                                    <a
-                                                                        href={check!.evidenceUrl!}
-                                                                        target="_blank"
-                                                                        rel="noopener noreferrer"
-                                                                        className="text-xs font-semibold text-brand-600 hover:text-brand-700"
-                                                                    >
-                                                                        View
-                                                                    </a>
+                                                                    fileProxyUrl(check!.evidenceUrl) && (
+                                                                        <a
+                                                                            href={fileProxyUrl(check!.evidenceUrl)!}
+                                                                            target="_blank"
+                                                                            rel="noopener noreferrer"
+                                                                            className="text-xs font-semibold text-brand-600 hover:text-brand-700"
+                                                                        >
+                                                                            View
+                                                                        </a>
+                                                                    )
                                                                 ) : (
                                                                     <Button
                                                                         variant="outline"
