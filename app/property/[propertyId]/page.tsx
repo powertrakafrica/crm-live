@@ -3,19 +3,31 @@
 import { use, useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { ArrowLeft, Bed, Bath, Share, Heart, MapPin, Maximize2, Calendar, ShieldCheck, Loader2, Check, MessageCircle } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { ArrowLeft, Bed, Bath, Share, Heart, MapPin, Maximize2, Calendar, Loader2, Check, MessageCircle } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import VerificationPanel from "@/components/VerificationPanel";
 import CheckoutModal from "@/components/CheckoutModal";
-import { feeApi, messageApi, propertiesApi } from "@/lib/api";
+import { feeApi, messageApi, propertiesApi, clientApi } from "@/lib/api";
+import { imageVariantUrl } from "@/lib/images";
 
 interface PropertyImage {
     url: string;
     altText?: string | null;
+    galleryUrl?: string | null;
+    listingUrl?: string | null;
+    thumbUrl?: string | null;
 }
 
 interface PropertyOwner {
+    id: number;
+    fullName: string;
+    phone?: string | null;
+    avatarUrl?: string | null;
+}
+
+interface PropertyAgent {
     id: number;
     fullName: string;
     phone?: string | null;
@@ -40,6 +52,7 @@ interface PropertyDetail {
     amenities?: string[] | null;
     images: PropertyImage[];
     owner: PropertyOwner | null;
+    agent: PropertyAgent | null;
 }
 
 function getInitials(name: string): string {
@@ -55,6 +68,7 @@ export default function PropertyPage({ params }: { params: Promise<{ propertyId:
     const resolvedParams = use(params);
     const propertyId = decodeURIComponent(resolvedParams.propertyId);
     const numericId = Number(propertyId);
+    const router = useRouter();
 
     const [property, setProperty] = useState<PropertyDetail | null>(null);
     const [loading, setLoading] = useState(true);
@@ -62,6 +76,7 @@ export default function PropertyPage({ params }: { params: Promise<{ propertyId:
     const [checkoutOpen, setCheckoutOpen] = useState(false);
     const [viewingFee, setViewingFee] = useState<number>(150);
     const [saved, setSaved] = useState(false);
+    const [saving, setSaving] = useState(false);
 
     useEffect(() => {
         if (Number.isNaN(numericId)) {
@@ -87,11 +102,24 @@ export default function PropertyPage({ params }: { params: Promise<{ propertyId:
                 setError(err.message || "Failed to load property");
             })
             .finally(() => setLoading(false));
+
+        // Best-effort: pre-fill the heart if the logged-in client already saved
+        // this property. 401/403 (anon, or a non-client role viewing the page)
+        // is swallowed — the save button still works as a logged-out CTA that
+        // prompts sign-in via the failed-save path below.
+        clientApi
+            .savedProperties()
+            .then((rows: any[]) => setSaved(rows.some((r) => r.id === numericId)))
+            .catch(() => {});
     }, [numericId]);
 
-    const galleryImages = property?.images?.length
-        ? property.images.map((img) => img.url)
-        : [];
+    // Hero uses the largest variant (galleryUrl 1600x1200) for quality; the four
+    // grid thumbnails use the thumb variant (400x300). Both fall back to the
+    // original `url` when a variant is absent (legacy rows / failed generation).
+    const allImages = property?.images ?? [];
+    const heroImage = imageVariantUrl(allImages[0], "gallery") ?? allImages[0]?.url ?? "/placeholder.jpg";
+    const galleryThumbs = allImages.slice(1, 5).map((img) => imageVariantUrl(img, "thumb") ?? img.url);
+    const galleryCount = allImages.length;
 
     const priceLabel = property?.pricePeriod
         ? `GH₵ ${property.price.toLocaleString()} / ${property.pricePeriod}`
@@ -100,26 +128,65 @@ export default function PropertyPage({ params }: { params: Promise<{ propertyId:
     const ownerName = property?.owner?.fullName ?? "Owner";
     const ownerInitials = property?.owner?.fullName ? getInitials(property.owner.fullName) : "??";
     const ownerPhone = property?.owner?.phone ?? null;
+    // Fallback contact for the WhatsApp deep link: prefer the owner, fall back
+    // to the assigned verification agent when the owner has no phone on file
+    // (spec §2.5: real owner/agent phone from the API). The detail payload now
+    // carries `agent` from the verification join.
+    const agentPhone = property?.agent?.phone ?? null;
+    const contactPhone = ownerPhone ?? agentPhone ?? null;
+    const contactUserId = property?.owner?.id ?? property?.agent?.id ?? null;
 
-    const whatsappMsg = encodeURIComponent(
-        `Hi, I'm interested in "${property?.title ?? ""}" listed on TEPS (Ref: ${property?.referenceCode ?? ""}). Please let me know the next steps.`
-    );
+    const rawWhatsappMsg =
+        `Hi, I'm interested in "${property?.title ?? ""}" listed on TEPS (Ref: ${property?.referenceCode ?? ""}). Please let me know the next steps.`;
+    const whatsappMsg = encodeURIComponent(rawWhatsappMsg);
 
     const handleWhatsAppClick = async () => {
-        if (!ownerPhone || !property?.owner?.id) return;
+        if (!contactPhone || !contactUserId || !property) return;
         // Best-effort: create a message thread if the visitor is logged in
-        // (the access cookie is sent automatically). A logged-out 401 is
-        // swallowed here — the WhatsApp link still opens regardless.
+        // (the access cookie is sent automatically), then log the prefilled
+        // enquiry as an outbound message in that thread (spec §2.5: "Log
+        // interaction in messages table when 'Chat on WhatsApp' is clicked").
+        // A logged-out 401 is swallowed — the WhatsApp link still opens
+        // regardless, and the wa.me deep link is what actually delivers the
+        // message (no Meta send here).
         try {
-            await messageApi.createThread({
-                participant2Id: property.owner.id,
+            const thread: any = await messageApi.createThread({
+                participant2Id: contactUserId,
                 propertyId: property.id,
                 threadType: "Property",
             });
+            if (thread?.id) {
+                await messageApi.send(thread.id, rawWhatsappMsg).catch(() => {});
+            }
         } catch {
             // Non-blocking
         }
-        window.open(`https://wa.me/${ownerPhone.replace(/\+/g, "")}?text=${whatsappMsg}`, "_blank");
+        window.open(`https://wa.me/${contactPhone.replace(/\+/g, "")}?text=${whatsappMsg}`, "_blank");
+    };
+
+    // Toggle save for the logged-in client. A 401/403 (anon or non-client role)
+    // surfaces a gentle prompt to sign in rather than failing silently — the
+    // heart reverts so it never lies about saved state.
+    const handleToggleSave = async () => {
+        if (saving) return;
+        const wasSaved = saved;
+        setSaved(!wasSaved); // optimistic
+        setSaving(true);
+        try {
+            if (wasSaved) {
+                await clientApi.removeSavedProperty(numericId);
+            } else {
+                await clientApi.saveProperty(numericId);
+            }
+        } catch (err: any) {
+            setSaved(wasSaved); // revert
+            const status = err?.status ?? err?.response?.status;
+            if (status === 401 || status === 403) {
+                router.push("/auth/login");
+            }
+        } finally {
+            setSaving(false);
+        }
     };
 
     const verificationChecks = property
@@ -183,12 +250,13 @@ export default function PropertyPage({ params }: { params: Promise<{ propertyId:
                         <span className="hidden sm:inline">Share</span>
                     </button>
                     <button
-                        onClick={() => setSaved(!saved)}
+                        onClick={handleToggleSave}
+                        disabled={saving}
                         className={`flex items-center gap-2 text-sm font-medium transition-colors border rounded-lg px-3 py-2 ${
                             saved
                                 ? "border-red-200 text-red-600 bg-red-50"
                                 : "border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900"
-                        }`}
+                        } ${saving ? "opacity-60 cursor-not-allowed" : ""}`}
                     >
                         <Heart className={`h-4 w-4 ${saved ? "fill-red-600" : ""}`} />
                         <span className="hidden sm:inline">{saved ? "Saved" : "Save"}</span>
@@ -222,18 +290,18 @@ export default function PropertyPage({ params }: { params: Promise<{ propertyId:
                 </div>
 
                 {/* Image Gallery */}
-                {galleryImages.length > 0 ? (
+                {galleryCount > 0 ? (
                     <div className="grid grid-cols-4 grid-rows-2 gap-2 h-[300px] sm:h-[400px] lg:h-[450px] mb-10 rounded-2xl overflow-hidden">
                         <div className="col-span-2 row-span-2 relative">
                             <Image
-                                src={galleryImages[0]}
+                                src={heroImage}
                                 alt={property.title}
                                 fill
                                 className="object-cover hover:scale-105 transition-transform duration-700 cursor-pointer"
                                 priority
                             />
                         </div>
-                        {galleryImages.slice(1, 5).map((img, i) => (
+                        {galleryThumbs.map((img, i) => (
                             <div key={i} className="col-span-1 row-span-1 relative">
                                 <Image
                                     src={img}
@@ -241,11 +309,11 @@ export default function PropertyPage({ params }: { params: Promise<{ propertyId:
                                     fill
                                     className="object-cover hover:scale-105 transition-transform duration-700 cursor-pointer"
                                 />
-                                {i === 3 && galleryImages.length > 5 && (
+                                {i === 3 && galleryCount > 5 && (
                                     <div className="absolute inset-0 bg-slate-950/50 flex items-center justify-center cursor-pointer hover:bg-slate-950/60 transition-colors">
                                         <span className="text-white font-semibold text-sm flex items-center gap-2">
                                             <Maximize2 className="h-4 w-4" />
-                                            View all {galleryImages.length}
+                                            View all {galleryCount}
                                         </span>
                                     </div>
                                 )}
@@ -324,7 +392,7 @@ export default function PropertyPage({ params }: { params: Promise<{ propertyId:
                                     <p className="font-semibold text-slate-900">Listed by {ownerName}</p>
                                     <p className="text-sm text-slate-500">Property Owner</p>
                                 </div>
-                                {ownerPhone && (
+                                {contactPhone && (
                                     <button
                                         onClick={handleWhatsAppClick}
                                         className="shrink-0 flex items-center gap-2 px-4 py-2 rounded-lg border border-green-200 text-green-700 bg-green-50 hover:bg-green-100 transition-colors text-sm font-medium"
@@ -364,7 +432,7 @@ export default function PropertyPage({ params }: { params: Promise<{ propertyId:
                                 Booking fee held in escrow until viewing is confirmed.
                             </p>
 
-                            {ownerPhone && (
+                            {contactPhone && (
                                 <button
                                     onClick={handleWhatsAppClick}
                                     className="w-full flex items-center justify-center gap-2 h-12 rounded-lg border border-green-200 text-green-700 bg-green-50 hover:bg-green-100 transition-colors font-medium"

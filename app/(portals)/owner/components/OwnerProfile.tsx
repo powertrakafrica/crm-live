@@ -54,8 +54,7 @@ export function OwnerProfile() {
         if (!file) return;
         setSaving(true);
         try {
-            const presign = await uploadApi.presign(file.name, "documents", file.type);
-            await fetch(presign.url, { method: "PUT", body: file, headers: { "Content-Type": file.type } });
+            await uploadApi.uploadFile(file, "documents");
             await profileApi.update({ ghanaCardNumber: "PENDING-VERIFY" });
             setIdUploaded(true);
         } catch (err: any) {

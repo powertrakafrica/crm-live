@@ -1,75 +1,252 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { Plus, X, MapPin, CheckSquare, UploadCloud, CheckCircle2, Globe, ShieldCheck, Home } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { Plus, X, MapPin, UploadCloud, CheckCircle2, Globe, ShieldCheck, Home, Pencil, Trash2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { PhotonSearch } from "@/components/PhotonSearch";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
-import { ownerApi } from "@/lib/api";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { geoApi, ownerApi, propertiesApi, uploadApi, fileProxyUrl } from "@/lib/api";
+import type { GeoConstituency, GeoRegion } from "@/lib/coverage";
+
+interface OwnerImage {
+    id: number;
+    url: string;
+    thumbUrl?: string | null;
+    isPrimary: boolean;
+    sortOrder: number;
+}
 
 interface OwnerProperty {
     id: number;
     title: string;
+    description?: string;
     location: string;
     category: string;
-    isVerified: boolean;
+    propertyType: string;
+    transactionType: string;
+    price: number | string;
     status: string;
     verificationStatus: string;
-    images: { url: string; isPrimary: boolean }[];
+    isVerified: boolean;
+    regionId?: number;
+    constituencyId?: number;
+    district?: string;
+    gpsLatitude?: string;
+    gpsLongitude?: string;
+    amenities?: string[];
+    images: OwnerImage[];
 }
+
+// Backend `category` and `transactionType` share the same Rent/Sale/Rent-to-Own
+// enum, so the wizard's single "listing type" choice feeds both. `propertyType`
+// is the separate Apartment/Commercial/House/Land/Mixed-Use enum.
+const LISTING_TYPES = ["Rent", "Sale", "Rent-to-Own"] as const;
+const PROPERTY_TYPES = ["Land", "House", "Apartment", "Commercial", "Mixed-Use"] as const;
+
+const EMPTY_FORM = {
+    listingType: "Rent" as (typeof LISTING_TYPES)[number],
+    title: "",
+    description: "",
+    price: "",
+    propertyType: "Land" as (typeof PROPERTY_TYPES)[number],
+    regionId: 0,
+    constituencyId: 0,
+    location: "",
+    privacyMode: false,
+    features: [] as string[],
+    gpsLatitude: "",
+    gpsLongitude: "",
+};
 
 export function OwnerListings() {
     const [wizardStep, setWizardStep] = useState(0);
-    const [wizardForm, setWizardForm] = useState({
-        listingType: "Rent",
-        title: "",
-        price: "",
-        category: "Plot of Land",
-        region: "Greater Accra",
-        district: "Ayawaso West",
-        privacyMode: false,
-        features: ["Walled & Gated", "Borehole Access", "Prepaid Meter"],
-    });
+    const [wizardForm, setWizardForm] = useState(EMPTY_FORM);
     const [listings, setListings] = useState<OwnerProperty[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
+    const [regions, setRegions] = useState<GeoRegion[]>([]);
+    const [constituencies, setConstituencies] = useState<GeoConstituency[]>([]);
+    const [stagedImages, setStagedImages] = useState<File[]>([]);
+    const [editId, setEditId] = useState<number | null>(null);
+    const [editImages, setEditImages] = useState<OwnerImage[]>([]);
+    const [saving, setSaving] = useState(false);
+    // Confirmation-modal targets for the two destructive actions (archive a
+    // property, remove an attached image). Both previously fired immediately
+    // (archive used the native confirm(); image removal had no prompt at all).
+    const [archiveTarget, setArchiveTarget] = useState<number | null>(null);
+    const [removeImageTarget, setRemoveImageTarget] = useState<number | null>(null);
+    const [deleting, setDeleting] = useState(false);
 
-    useEffect(() => {
+    const loadListings = useCallback(() => {
+        setLoading(true);
         ownerApi.properties()
-            .then((data: any) => {
-                const mapped = (data ?? []).map((p: any) => ({
-                    ...p,
-                    status: mapDbStatus(p.status),
-                }));
-                setListings(mapped);
-            })
+            .then((data: any) => setListings((data ?? []) as OwnerProperty[]))
             .catch((err: any) => setError(err.message || "Failed to load properties"))
             .finally(() => setLoading(false));
     }, []);
 
-    const mapDbStatus = (status: string) => {
-        switch (status) {
-            case "Active": return "Available";
-            case "Pending": return "Pending Review";
-            case "Sold":
-            case "Rented":
-            case "Archived": return "Off-Market";
-            case "Draft": return "Pending Review";
-            default: return status;
-        }
-    };
+    useEffect(() => {
+        loadListings();
+        // Region select is required (regionId is validated server-side), so load
+        // the canonical list once for the wizard. Constituencies load per region.
+        geoApi.regions().then((r) => setRegions(r)).catch(() => {});
+    }, [loadListings]);
 
-    const toggleStatus = (id: number, current: string) => {
-        const next = current === "Available" ? "Under Offer" : current === "Under Offer" ? "Off-Market" : "Available";
-        setListings(listings.map(l => l.id === id ? { ...l, status: next } : l));
-    };
+    function loadConstituencies(regionId: number) {
+        if (!regionId) {
+            setConstituencies([]);
+            return;
+        }
+        geoApi.constituencies(regionId).then((c) => setConstituencies(c)).catch(() => setConstituencies([]));
+    }
+
+    // Map a listing row onto the wizard form for editing. Numeric regionId /
+    // constituencyId come straight off the row; we also prime the constituency
+    // select so the owner sees their current constituency without re-picking.
+    function openEdit(p: OwnerProperty) {
+        setEditId(p.id);
+        setEditImages(p.images ?? []);
+        setConstituencies([]);
+        setStagedImages([]);
+        setWizardForm({
+            listingType: (LISTING_TYPES as readonly string[]).includes(p.transactionType) ? (p.transactionType as (typeof LISTING_TYPES)[number]) : "Rent",
+            title: p.title ?? "",
+            description: p.description ?? "",
+            price: String(p.price ?? ""),
+            propertyType: (PROPERTY_TYPES as readonly string[]).includes(p.propertyType) ? (p.propertyType as (typeof PROPERTY_TYPES)[number]) : "Land",
+            regionId: p.regionId ?? 0,
+            constituencyId: p.constituencyId ?? 0,
+            location: p.location ?? "",
+            privacyMode: false,
+            features: p.amenities ?? [],
+            gpsLatitude: p.gpsLatitude ?? "",
+            gpsLongitude: p.gpsLongitude ?? "",
+        });
+        if (p.regionId) loadConstituencies(p.regionId);
+        setWizardStep(1);
+    }
+
+    function openCreate() {
+        setEditId(null);
+        setEditImages([]);
+        setStagedImages([]);
+        setWizardForm(EMPTY_FORM);
+        setConstituencies([]);
+        setWizardStep(1);
+    }
+
+    function closeWizard() {
+        setWizardStep(0);
+        setEditId(null);
+        setEditImages([]);
+        setStagedImages([]);
+    }
+
+    // Archives the property after the user confirms in the ConfirmDialog.
+    // Replaces the old native confirm() — the modal is the only gate now.
+    async function confirmArchive() {
+        if (archiveTarget == null) return;
+        setDeleting(true);
+        try {
+            await propertiesApi.delete(archiveTarget);
+            setListings((prev) => prev.filter((l) => l.id !== archiveTarget));
+            setArchiveTarget(null);
+        } catch (err: any) {
+            setError(err.message || "Delete failed");
+        } finally {
+            setDeleting(false);
+        }
+    }
+
+    // Removes an attached image after the user confirms in the ConfirmDialog.
+    // Previously this fired immediately on click with no prompt.
+    async function confirmRemoveImage() {
+        if (!editId || removeImageTarget == null) return;
+        setDeleting(true);
+        try {
+            await propertiesApi.deleteImage(editId, removeImageTarget);
+            setEditImages((prev) => prev.filter((i) => i.id !== removeImageTarget));
+            setRemoveImageTarget(null);
+        } catch (err: any) {
+            setError(err.message || "Failed to remove image");
+        } finally {
+            setDeleting(false);
+        }
+    }
+
+    const regionName = regions.find((r) => r.id === wizardForm.regionId)?.name ?? "";
+    const constituencyName = constituencies.find((c) => c.id === wizardForm.constituencyId)?.name ?? "";
+
+    const formValid =
+        wizardForm.title.trim() !== "" &&
+        wizardForm.description.trim() !== "" &&
+        wizardForm.price !== "" && Number(wizardForm.price) > 0 &&
+        wizardForm.regionId > 0 &&
+        wizardForm.constituencyId > 0;
+
+    function buildPayload(): Record<string, unknown> {
+        const lt = wizardForm.listingType;
+        const location = wizardForm.location.trim() || [regionName, constituencyName].filter(Boolean).join(", ");
+        const payload: Record<string, unknown> = {
+            title: wizardForm.title.trim(),
+            description: wizardForm.description.trim(),
+            price: Number(wizardForm.price),
+            location,
+            category: lt,
+            transactionType: lt,
+            propertyType: wizardForm.propertyType,
+            regionId: wizardForm.regionId,
+            constituencyId: wizardForm.constituencyId,
+            amenities: wizardForm.features,
+        };
+        if (wizardForm.gpsLatitude) payload.gpsLatitude = wizardForm.gpsLatitude;
+        if (wizardForm.gpsLongitude) payload.gpsLongitude = wizardForm.gpsLongitude;
+        return payload;
+    }
+
+    async function handleSave() {
+        if (!formValid) return;
+        setSaving(true);
+        setError("");
+        try {
+            const payload = buildPayload();
+            let propertyId: number;
+            if (editId) {
+                await propertiesApi.update(editId, payload);
+                propertyId = editId;
+            } else {
+                const created: any = await propertiesApi.create(payload);
+                propertyId = created.id;
+            }
+            // Attach newly staged images (direct-to-Spaces upload to the public
+            // `images` folder, then register the URL on the property). The first
+            // staged image becomes the primary listing photo when none exist yet.
+            for (let i = 0; i < stagedImages.length; i++) {
+                const { publicUrl } = await uploadApi.uploadFile(stagedImages[i], "images");
+                await propertiesApi.addImage(propertyId, {
+                    url: publicUrl,
+                    isPrimary: i === 0 && editImages.length === 0,
+                    sortOrder: editImages.length + i,
+                });
+            }
+            loadListings();
+            closeWizard();
+        } catch (err: any) {
+            setError(err.message || "Save failed");
+        } finally {
+            setSaving(false);
+        }
+    }
 
     const getStatusVariant = (status: string) => {
-        if (status === "Available") return "verified";
-        if (status === "Pending Review") return "secondary";
+        if (status === "Live") return "verified";
+        if (status === "Pending") return "secondary";
         return "default";
     };
+
+    const totalMedia = editImages.length + stagedImages.length;
 
     return (
         <div className="space-y-6">
@@ -80,19 +257,21 @@ export function OwnerListings() {
                     <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
                         <div>
                             <h2 className="text-2xl font-heading font-bold text-charcoal-950">Property Portfolio</h2>
-                            <p className="text-charcoal-500 font-medium">Manage availability and create new high-conversion listings.</p>
+                            <p className="text-charcoal-500 font-medium">Create, edit, and manage your listings.</p>
                         </div>
-                        <Button onClick={() => setWizardStep(1)} className="bg-brand-600 hover:bg-brand-700 text-white font-bold shadow-sm h-11 px-6">
-                            <Plus className="h-5 w-5 mr-2" /> Smart Listing Wizard
+                        <Button onClick={openCreate} className="bg-brand-600 hover:bg-brand-700 text-white font-bold shadow-sm h-11 px-6">
+                            <Plus className="h-5 w-5 mr-2" /> New Listing
                         </Button>
                     </div>
+
+                    {error && (
+                        <div className="bg-red-50 border border-red-200 rounded-sm p-4 text-sm font-medium text-red-700 mb-4">{error}</div>
+                    )}
 
                     {loading ? (
                         <div className="bg-white border border-charcoal-200 rounded-sm p-12 text-center">
                             <p className="text-charcoal-500 font-medium">Loading properties...</p>
                         </div>
-                    ) : error ? (
-                        <div className="bg-red-50 border border-red-200 rounded-sm p-4 text-sm font-medium text-red-700">{error}</div>
                     ) : (
                         <Card className="border-charcoal-200 shadow-sm rounded-sm">
                             <CardContent className="p-0 overflow-x-auto">
@@ -101,13 +280,14 @@ export function OwnerListings() {
                                         <tr>
                                             <th className="px-6 py-4 font-bold tracking-wider">Property</th>
                                             <th className="px-6 py-4 font-bold tracking-wider">Type</th>
+                                            <th className="px-6 py-4 font-bold tracking-wider">Status</th>
                                             <th className="px-6 py-4 font-bold tracking-wider">Verification</th>
-                                            <th className="px-6 py-4 font-bold tracking-wider">Availability Toggle</th>
+                                            <th className="px-6 py-4 font-bold tracking-wider text-right">Actions</th>
                                         </tr>
                                     </thead>
                                     <tbody>
                                         {listings.length === 0 ? (
-                                            <tr><td colSpan={4} className="px-6 py-12 text-center text-charcoal-500 font-medium">No properties found.</td></tr>
+                                            <tr><td colSpan={5} className="px-6 py-12 text-center text-charcoal-500 font-medium">No properties yet. Click &quot;New Listing&quot; to create one.</td></tr>
                                         ) : listings.map((item) => (
                                             <tr key={item.id} className="bg-white border-b border-charcoal-100 hover:bg-charcoal-50 transition-colors">
                                                 <td className="px-6 py-4">
@@ -117,30 +297,38 @@ export function OwnerListings() {
                                                     </div>
                                                 </td>
                                                 <td className="px-6 py-4">
-                                                    <span className="font-bold text-charcoal-700">{item.category}</span>
+                                                    <span className="font-bold text-charcoal-700">{item.propertyType}</span>
+                                                    <div className="text-xs text-charcoal-500">{item.category}</div>
+                                                </td>
+                                                <td className="px-6 py-4">
+                                                    <Badge variant={getStatusVariant(item.status)} className="shadow-none">{item.status}</Badge>
                                                 </td>
                                                 <td className="px-6 py-4">
                                                     {item.isVerified ? (
-                                                        <Badge variant="verified" className="shadow-none"><ShieldCheck className="h-3 w-3 mr-1"/> TEPS Verified</Badge>
+                                                        <Badge variant="verified" className="shadow-none"><ShieldCheck className="h-3 w-3 mr-1"/> Verified</Badge>
                                                     ) : (
-                                                        <span className="text-xs font-bold text-amber-600 bg-amber-50 px-2 py-1 rounded-sm border border-amber-200">Unverified</span>
+                                                        <span className="text-xs font-bold text-amber-600 bg-amber-50 px-2 py-1 rounded-sm border border-amber-200">{item.verificationStatus || "Unverified"}</span>
                                                     )}
                                                 </td>
                                                 <td className="px-6 py-4">
-                                                    <Button
-                                                        variant="outline"
-                                                        size="sm"
-                                                        onClick={() => toggleStatus(item.id, item.status)}
-                                                        className={`h-8 font-bold border-none shadow-none text-xs w-28 justify-center ${
-                                                            item.status === 'Available' ? 'bg-green-100 text-green-700 hover:bg-green-200' :
-                                                            item.status === 'Under Offer' ? 'bg-orange-100 text-orange-700 hover:bg-orange-200' :
-                                                            item.status === 'Pending Review' ? 'bg-charcoal-100 text-charcoal-500 cursor-not-allowed opacity-50' :
-                                                            'bg-red-100 text-red-700 hover:bg-red-200'
-                                                        }`}
-                                                        disabled={item.status === "Pending Review"}
-                                                    >
-                                                        {item.status}
-                                                    </Button>
+                                                    <div className="flex justify-end gap-2">
+                                                        <button
+                                                            type="button"
+                                                            title="Edit"
+                                                            onClick={() => openEdit(item)}
+                                                            className="h-8 w-8 flex items-center justify-center rounded-sm border border-charcoal-200 bg-white text-charcoal-600 hover:bg-charcoal-50 hover:text-brand-600 transition-colors"
+                                                        >
+                                                            <Pencil className="h-4 w-4" />
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            title="Archive"
+                                                            onClick={() => setArchiveTarget(item.id)}
+                                                            className="h-8 w-8 flex items-center justify-center rounded-sm border border-charcoal-200 bg-white text-charcoal-600 hover:bg-red-50 hover:text-red-600 transition-colors"
+                                                        >
+                                                            <Trash2 className="h-4 w-4" />
+                                                        </button>
+                                                    </div>
                                                 </td>
                                             </tr>
                                         ))}
@@ -152,7 +340,7 @@ export function OwnerListings() {
                 </div>
             )}
 
-            {/* Smart Listing Wizard Modal Overlay */}
+            {/* Listing Wizard Modal Overlay */}
             {wizardStep > 0 && (
                 <div className="fixed inset-0 bg-charcoal-950/40 z-50 flex items-center justify-center p-4 backdrop-blur-sm pt-10 pb-10">
                     <div className="bg-white rounded-sm shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-full animate-in zoom-in-95 duration-200">
@@ -161,12 +349,12 @@ export function OwnerListings() {
                             <div>
                                 <h3 className="font-heading font-bold text-xl text-charcoal-950 flex items-center gap-2">
                                     <Home className="h-5 w-5 text-brand-600" />
-                                    Smart Listing Wizard
+                                    {editId ? "Edit Listing" : "New Listing"}
                                 </h3>
                                 <p className="text-sm text-charcoal-500 font-medium mt-1">Step {wizardStep} of 4</p>
                             </div>
                             <button
-                                onClick={() => setWizardStep(0)}
+                                onClick={closeWizard}
                                 className="h-8 w-8 flex items-center justify-center rounded-sm bg-white border border-charcoal-200 text-charcoal-400 hover:text-charcoal-900 transition-colors shadow-sm"
                             >
                                 <X className="h-4 w-4" />
@@ -177,6 +365,10 @@ export function OwnerListings() {
                         <div className="h-1.5 w-full bg-charcoal-100 shrink-0">
                             <div className="h-full bg-brand-600 transition-all duration-300" style={{ width: `${(wizardStep / 4) * 100}%` }}></div>
                         </div>
+
+                        {error && (
+                            <div className="mx-6 mt-4 bg-red-50 border border-red-200 rounded-sm p-3 text-sm font-medium text-red-700">{error}</div>
+                        )}
 
                         {/* Form Body */}
                         <div className="p-6 md:p-8 overflow-y-auto custom-scrollbar bg-white grow">
@@ -189,7 +381,7 @@ export function OwnerListings() {
                                         <p className="text-sm text-charcoal-500">What kind of property are you listing?</p>
                                     </div>
                                     <div className="grid grid-cols-3 gap-3">
-                                        {['Rent', 'Sale', 'Rent-to-Own'].map(t => (
+                                        {LISTING_TYPES.map((t) => (
                                             <div
                                                 key={t}
                                                 onClick={() => setWizardForm({ ...wizardForm, listingType: t })}
@@ -206,11 +398,18 @@ export function OwnerListings() {
                                             value={wizardForm.title}
                                             onChange={(e) => setWizardForm({ ...wizardForm, title: e.target.value })}
                                             placeholder="e.g. 2 Bedroom Semi-Detached House"
-                                            className={`w-full bg-white border text-sm rounded-sm px-3 py-3 outline-none font-medium text-charcoal-900 shadow-sm ${wizardForm.title.trim() === '' ? 'border-red-300 focus:border-red-500 focus:ring-1 focus:ring-red-500' : 'border-charcoal-200 focus:border-brand-500 focus:ring-1 focus:ring-brand-500'}`}
+                                            className="w-full bg-white border border-charcoal-200 focus:border-brand-500 focus:ring-1 focus:ring-brand-500 text-sm rounded-sm px-3 py-3 outline-none font-medium text-charcoal-900 shadow-sm"
                                         />
-                                        {wizardForm.title.trim() === '' && (
-                                            <p className="text-[11px] text-red-600 font-medium">Property title is required</p>
-                                        )}
+                                    </div>
+                                    <div className="space-y-1">
+                                        <label className="text-xs font-bold uppercase tracking-wider text-charcoal-500">Description *</label>
+                                        <textarea
+                                            value={wizardForm.description}
+                                            onChange={(e) => setWizardForm({ ...wizardForm, description: e.target.value })}
+                                            placeholder="Describe the property, surroundings, and key selling points..."
+                                            rows={3}
+                                            className="w-full bg-white border border-charcoal-200 focus:border-brand-500 focus:ring-1 focus:ring-brand-500 text-sm rounded-sm px-3 py-3 outline-none font-medium text-charcoal-900 shadow-sm resize-none"
+                                        />
                                     </div>
                                     <div className="grid grid-cols-2 gap-4">
                                         <div className="space-y-1">
@@ -219,23 +418,18 @@ export function OwnerListings() {
                                                 type="number"
                                                 value={wizardForm.price}
                                                 onChange={(e) => setWizardForm({ ...wizardForm, price: e.target.value })}
-                                                placeholder="5,000"
-                                                className={`w-full bg-white border text-sm rounded-sm px-3 py-3 outline-none font-medium text-charcoal-900 shadow-sm ${wizardForm.price === '' ? 'border-red-300 focus:border-red-500 focus:ring-1 focus:ring-red-500' : 'border-charcoal-200 focus:border-brand-500 focus:ring-1 focus:ring-brand-500'}`}
+                                                placeholder="5000"
+                                                className="w-full bg-white border border-charcoal-200 focus:border-brand-500 focus:ring-1 focus:ring-brand-500 text-sm rounded-sm px-3 py-3 outline-none font-medium text-charcoal-900 shadow-sm"
                                             />
-                                            {wizardForm.price === '' && (
-                                                <p className="text-[11px] text-red-600 font-medium">Price is required</p>
-                                            )}
                                         </div>
                                         <div className="space-y-1">
-                                            <label className="text-xs font-bold uppercase tracking-wider text-charcoal-500">Category</label>
+                                            <label className="text-xs font-bold uppercase tracking-wider text-charcoal-500">Property Type *</label>
                                             <select
-                                                value={wizardForm.category}
-                                                onChange={(e) => setWizardForm({ ...wizardForm, category: e.target.value })}
+                                                value={wizardForm.propertyType}
+                                                onChange={(e) => setWizardForm({ ...wizardForm, propertyType: e.target.value as (typeof PROPERTY_TYPES)[number] })}
                                                 className="w-full bg-white border border-charcoal-200 focus:border-brand-500 focus:ring-1 focus:ring-brand-500 text-sm rounded-sm px-3 py-3 outline-none font-medium text-charcoal-900 shadow-sm"
                                             >
-                                                <option>Plot of Land</option>
-                                                <option>Self-Contained</option>
-                                                <option>Gated Community</option>
+                                                {PROPERTY_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
                                             </select>
                                         </div>
                                     </div>
@@ -249,56 +443,56 @@ export function OwnerListings() {
                                         <h4 className="font-bold text-lg text-charcoal-900">Geographic Pinning</h4>
                                         <p className="text-sm text-charcoal-500">Where exactly is this located?</p>
                                     </div>
-                                    <div className="space-y-1">
-                                        <label className="text-xs font-bold uppercase tracking-wider text-charcoal-500">Search Location</label>
-                                        <PhotonSearch
-                                            value=""
-                                            onChange={(val, feat) => {
-                                                if (feat) {
-                                                    const state = feat.properties.state ?? "";
-                                                    const district = feat.properties.district ?? feat.properties.city ?? "";
-                                                    setWizardForm((prev) => ({
-                                                        ...prev,
-                                                        region: state || prev.region,
-                                                        district: district || prev.district,
-                                                    }));
-                                                }
-                                            }}
-                                            placeholder="Type an area, landmark, or address..."
-                                        />
-                                    </div>
-
                                     <div className="grid grid-cols-2 gap-4">
-                                        <select
-                                            value={wizardForm.region}
-                                            onChange={(e) => setWizardForm({ ...wizardForm, region: e.target.value })}
-                                            className="col-span-1 border border-charcoal-200 text-sm rounded-sm px-3 py-3 shadow-sm font-medium outline-none focus:border-brand-500"
-                                        >
-                                            <option>Greater Accra</option>
-                                            <option>Ashanti</option>
-                                        </select>
-                                        <select
-                                            value={wizardForm.district}
-                                            onChange={(e) => setWizardForm({ ...wizardForm, district: e.target.value })}
-                                            className="col-span-1 border border-charcoal-200 text-sm rounded-sm px-3 py-3 shadow-sm font-medium outline-none focus:border-brand-500"
-                                        >
-                                            <option>Ayawaso West</option>
-                                            <option>Osu Klottey</option>
-                                        </select>
+                                        <div className="space-y-1">
+                                            <label className="text-xs font-bold uppercase tracking-wider text-charcoal-500">Region *</label>
+                                            <select
+                                                value={wizardForm.regionId}
+                                                onChange={(e) => {
+                                                    const regionId = Number(e.target.value);
+                                                    setWizardForm({ ...wizardForm, regionId, constituencyId: 0 });
+                                                    loadConstituencies(regionId);
+                                                }}
+                                                className="w-full bg-white border border-charcoal-200 focus:border-brand-500 focus:ring-1 focus:ring-brand-500 text-sm rounded-sm px-3 py-3 outline-none font-medium text-charcoal-900 shadow-sm"
+                                            >
+                                                <option value={0}>Select region...</option>
+                                                {regions.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+                                            </select>
+                                        </div>
+                                        <div className="space-y-1">
+                                            <label className="text-xs font-bold uppercase tracking-wider text-charcoal-500">Constituency *</label>
+                                            <select
+                                                value={wizardForm.constituencyId}
+                                                onChange={(e) => setWizardForm({ ...wizardForm, constituencyId: Number(e.target.value) })}
+                                                disabled={wizardForm.regionId === 0}
+                                                className="w-full bg-white border border-charcoal-200 focus:border-brand-500 focus:ring-1 focus:ring-brand-500 text-sm rounded-sm px-3 py-3 outline-none font-medium text-charcoal-900 shadow-sm disabled:opacity-50"
+                                            >
+                                                <option value={0}>Select constituency...</option>
+                                                {constituencies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                                            </select>
+                                        </div>
                                     </div>
-
-                                    <div className="relative h-48 w-full bg-blue-50 border border-blue-200 rounded-sm overflow-hidden flex items-center justify-center group cursor-pointer">
-                                        <div className="absolute inset-0 opacity-20" style={{ backgroundImage: "radial-gradient(#94a3b8 1px, transparent 1px)", backgroundSize: "20px 20px" }}></div>
-                                        {wizardForm.privacyMode ? (
-                                            <div className="relative h-24 w-24 rounded-full bg-brand-600/20 border-2 border-brand-500 flex items-center justify-center animate-pulse">
-                                                <span className="text-[10px] font-bold text-brand-800 uppercase tracking-widest text-center leading-tight bg-white/80 px-2 py-1 rounded-sm">500m<br/>Radius</span>
-                                            </div>
-                                        ) : (
-                                            <div className="relative group-hover:-translate-y-2 transition-transform">
-                                                <MapPin className="h-10 w-10 text-brand-600 drop-shadow-md" fill="#10b981" />
-                                            </div>
+                                    <div className="space-y-1">
+                                        <label className="text-xs font-bold uppercase tracking-wider text-charcoal-500">Search Location (optional)</label>
+                                        <PhotonSearch
+                                            value={wizardForm.location}
+                                            onChange={(val, feat) => {
+                                                setWizardForm((prev) => ({
+                                                    ...prev,
+                                                    location: val || prev.location,
+                                                    ...(feat?.geometry?.coordinates ? {
+                                                        gpsLongitude: String(feat.geometry.coordinates[0]),
+                                                        gpsLatitude: String(feat.geometry.coordinates[1]),
+                                                    } : {}),
+                                                }));
+                                            }}
+                                            placeholder="Type an area, landmark, or address to pin GPS..."
+                                        />
+                                        {(wizardForm.gpsLatitude || wizardForm.gpsLongitude) && (
+                                            <p className="text-[11px] text-charcoal-500 font-medium">
+                                                Pinned GPS: {wizardForm.gpsLatitude}, {wizardForm.gpsLongitude}
+                                            </p>
                                         )}
-                                        <span className="absolute bottom-2 right-2 text-xs font-bold text-blue-900 bg-blue-100 px-2 py-0.5 rounded-sm">Click map to pin</span>
                                     </div>
 
                                     <div className="bg-charcoal-50 border border-charcoal-200 rounded-sm p-4 flex items-start gap-3">
@@ -323,7 +517,7 @@ export function OwnerListings() {
                                 <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
                                     <div className="mb-6">
                                         <h4 className="font-bold text-lg text-charcoal-900">Afro-Feature Tags</h4>
-                                        <p className="text-sm text-charcoal-500">Select local value-add features that drive conversions in Ghana.</p>
+                                        <p className="text-sm text-charcoal-500">Select local value-add features that drive conversions in Ghana. Saved as the listing amenities.</p>
                                     </div>
                                     <div className="grid grid-cols-2 gap-3">
                                         {['Walled & Gated', 'Borehole Access', 'Prepaid Meter', 'Constant Water Flow', 'Proximity to Trotro', 'Tarred Road Access', 'Registered Land Title', 'Security Guard Post'].map((feature) => {
@@ -354,27 +548,74 @@ export function OwnerListings() {
                                 <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
                                     <div className="mb-6">
                                         <h4 className="font-bold text-lg text-charcoal-900">Media Upload</h4>
-                                        <p className="text-sm text-charcoal-500">Hook buyers with stunning visuals. Photos, videos, and 360° tours.</p>
+                                        <p className="text-sm text-charcoal-500">Upload photos. The first image becomes the primary listing photo.</p>
                                     </div>
 
-                                    <div
+                                    {editImages.length > 0 && (
+                                        <div className="grid grid-cols-3 gap-2">
+                                            {editImages.map((img) => (
+                                                <div key={img.id} className="relative group">
+                                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                                    <img
+                                                        src={fileProxyUrl(img.thumbUrl || img.url)}
+                                                        alt=""
+                                                        className="w-full h-24 object-cover rounded-sm border border-charcoal-200"
+                                                    />
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setRemoveImageTarget(img.id)}
+                                                        className="absolute top-1 right-1 h-6 w-6 rounded-full bg-red-600 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                                                        title="Remove"
+                                                    >
+                                                        <X className="h-3 w-3" />
+                                                    </button>
+                                                    {img.isPrimary && (
+                                                        <span className="absolute bottom-1 left-1 text-[9px] font-bold bg-brand-600 text-white px-1.5 py-0.5 rounded-sm">Primary</span>
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+
+                                    <label
                                         className="border-2 border-dashed border-brand-300 bg-brand-50/50 rounded-sm p-10 flex flex-col items-center justify-center cursor-pointer hover:bg-brand-50 transition-colors text-center"
-                                        onClick={() => alert("Simulating file vault interaction...")}
                                     >
+                                        <input
+                                            type="file"
+                                            multiple
+                                            accept="image/*"
+                                            className="hidden"
+                                            onChange={(e) => {
+                                                const files = Array.from(e.target.files ?? []);
+                                                setStagedImages((prev) => [...prev, ...files]);
+                                                e.target.value = "";
+                                            }}
+                                        />
                                         <div className="h-16 w-16 bg-white rounded-full shadow-sm flex items-center justify-center mb-4 text-brand-600 border border-brand-100">
                                             <UploadCloud className="h-8 w-8" />
                                         </div>
-                                        <p className="text-base font-bold text-charcoal-900 mb-1">Drag and drop assets here</p>
-                                        <p className="text-sm text-charcoal-500 mb-4 max-w-sm mx-auto">Upload standard photos, MP4 walkthroughs, or .zip files containing 360-degree panorama metadata.</p>
-                                        <Button variant="outline" className="border-brand-200 font-bold bg-white shadow-sm text-brand-700">Browse Files</Button>
-                                    </div>
+                                        <p className="text-base font-bold text-charcoal-900 mb-1">Drag and drop or click to browse</p>
+                                        <p className="text-sm text-charcoal-500 max-w-sm mx-auto">Upload standard photos of the property. They are stored securely and attached on save.</p>
+                                    </label>
 
-                                    <div className="bg-charcoal-50 rounded-sm border border-charcoal-200 p-4 flex items-center justify-between">
-                                        <div className="flex items-center gap-3">
-                                            <CheckCircle2 className="h-5 w-5 text-green-600" />
-                                            <span className="text-sm font-bold text-charcoal-900">3 Photos ready for upload</span>
+                                    {stagedImages.length > 0 && (
+                                        <div className="bg-charcoal-50 rounded-sm border border-charcoal-200 p-4 flex items-center justify-between">
+                                            <div className="flex items-center gap-3">
+                                                <CheckCircle2 className="h-5 w-5 text-green-600" />
+                                                <span className="text-sm font-bold text-charcoal-900">{stagedImages.length} new photo{stagedImages.length > 1 ? "s" : ""} ready for upload</span>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => setStagedImages([])}
+                                                className="text-xs font-semibold text-red-600 hover:text-red-700"
+                                            >
+                                                Clear
+                                            </button>
                                         </div>
-                                    </div>
+                                    )}
+                                    {totalMedia === 0 && (
+                                        <p className="text-xs text-charcoal-500 font-medium text-center">No photos added yet — you can save and add them later from Edit.</p>
+                                    )}
                                 </div>
                             )}
 
@@ -392,40 +633,47 @@ export function OwnerListings() {
 
                             {wizardStep < 4 ? (
                                 <Button
-                                    onClick={() => {
-                                        const ok = wizardForm.title.trim() !== "" && wizardForm.price !== "";
-                                        if (ok) setWizardStep(wizardStep + 1);
-                                    }}
-                                    disabled={wizardForm.title.trim() === "" || wizardForm.price === ""}
-                                    className="bg-brand-600 hover:bg-brand-700 text-white font-bold h-11 px-8 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                                    onClick={() => setWizardStep(wizardStep + 1)}
+                                    className="bg-brand-600 hover:bg-brand-700 text-white font-bold h-11 px-8 shadow-sm"
                                 >
                                     Continue
                                 </Button>
                             ) : (
                                 <Button
-                                    onClick={() => {
-                                        // TODO: submit wizardForm to API
-                                        setWizardForm({
-                                            listingType: "Rent",
-                                            title: "",
-                                            price: "",
-                                            category: "Plot of Land",
-                                            region: "Greater Accra",
-                                            district: "Ayawaso West",
-                                            privacyMode: false,
-                                            features: ["Walled & Gated", "Borehole Access", "Prepaid Meter"],
-                                        });
-                                        setWizardStep(0);
-                                    }}
-                                    className="bg-brand-600 hover:bg-brand-700 text-white font-bold h-11 px-8 shadow-sm"
+                                    onClick={handleSave}
+                                    disabled={saving || !formValid}
+                                    className="bg-brand-600 hover:bg-brand-700 text-white font-bold h-11 px-8 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
-                                    <ShieldCheck className="h-4 w-4 mr-2" /> Save & Request Verification
+                                    {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <ShieldCheck className="h-4 w-4 mr-2" />}
+                                    {editId ? "Save Changes" : "Save & Publish Draft"}
                                 </Button>
                             )}
                         </div>
                     </div>
                 </div>
             )}
+
+            {/* Archive-property confirmation */}
+            <ConfirmDialog
+                isOpen={archiveTarget != null}
+                onClose={() => setArchiveTarget(null)}
+                onConfirm={confirmArchive}
+                busy={deleting}
+                title="Archive Property"
+                confirmLabel="Archive"
+                message="Archive this property? It will be removed from public listings but retained for your records."
+            />
+
+            {/* Remove-image confirmation */}
+            <ConfirmDialog
+                isOpen={removeImageTarget != null}
+                onClose={() => setRemoveImageTarget(null)}
+                onConfirm={confirmRemoveImage}
+                busy={deleting}
+                title="Remove Image"
+                confirmLabel="Remove"
+                message="Remove this image from the property?"
+            />
         </div>
     );
 }

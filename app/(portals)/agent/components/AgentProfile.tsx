@@ -11,8 +11,10 @@ import {
   ShieldCheck,
   Loader2,
   UploadCloud,
-  X,
   Eye,
+  FileCheck,
+  Home,
+  Award,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import {
@@ -22,7 +24,8 @@ import {
   CardTitle,
   CardDescription,
 } from "@/components/ui/Card";
-import { profileApi, uploadApi } from "@/lib/api";
+import { DocumentViewer } from "@/components/ui/DocumentViewer";
+import { fileProxyUrl, profileApi, uploadApi } from "@/lib/api";
 import { CoveragePicker } from "./CoveragePicker";
 import { coverageToItems, itemsToCoverage, type CoverageItem } from "@/lib/coverage";
 
@@ -33,9 +36,40 @@ interface UserProfile {
   phone: string | null;
   avatarUrl: string | null;
   ghanaCardNumber: string | null;
-  ghanaCardUrl: string | null;
   isVerified: boolean;
   role: string;
+  // Identity & contact — returned by getUserProfile and editable here so an
+  // agent can correct DOB / address / emergency contact without re-running
+  // enlistment. All optional/null (the become-agent form historically didn't
+  // enforce them, so existing agents may have gaps).
+  dateOfBirth?: string | null;
+  gender?: string | null;
+  nationality?: string | null;
+  residentialAddress?: string | null;
+  digitalAddress?: string | null;
+  emergencyContactName?: string | null;
+  emergencyContactRelationship?: string | null;
+  emergencyContactPhone?: string | null;
+  documents?: AgentDoc[];
+}
+
+type DocStatus = "Approved" | "Pending" | "Rejected";
+type DocType =
+  | "Certificate"
+  | "GhanaCard"
+  | "Other"
+  | "PartnershipAgreement"
+  | "PoliceClearance"
+  | "ProofOfAddress";
+
+interface AgentDoc {
+  id: number;
+  docType: DocType;
+  fileUrl: string;
+  status: DocStatus;
+  reviewedAt: string | null;
+  reviewedBy: number | null;
+  createdAt: string;
 }
 
 interface AgentProfile {
@@ -46,7 +80,10 @@ interface AgentProfile {
   momoNumber: string | null;
   momoNetwork: string | null;
   isOnboardingComplete: boolean;
-  partnershipAgreementUrl: string | null;
+  agentCode: string | null;
+  experienceLevel: "Expert" | "Intermediate" | "New" | null;
+  onboardedAt: string | null;
+  documents?: AgentDoc[];
 }
 
 const ALL_LANGUAGES = [
@@ -65,6 +102,26 @@ const ALL_SPECIALTIES = [
   "Land & Plots",
   "Rent-to-Own Deals",
 ];
+const EXPERIENCE_LEVELS: Array<{ value: "Expert" | "Intermediate" | "New"; label: string }> = [
+  { value: "New", label: "New" },
+  { value: "Intermediate", label: "Intermediate" },
+  { value: "Expert", label: "Expert" },
+];
+const MOMO_NETWORKS = ["MTN", "Vodafone", "AirtelTigo"];
+const GENDER_OPTIONS: Array<"Female" | "Male" | "Other"> = ["Male", "Female", "Other"];
+
+// Supporting doc types an agent can upload beyond Ghana Card / Partnership
+// Agreement (which have dedicated endpoints). Each gets its own upload button.
+const SUPPORTING_DOC_TYPES: Array<{
+  docType: "Certificate" | "PoliceClearance" | "ProofOfAddress";
+  icon: typeof FileCheck;
+  label: string;
+}> = [
+  { docType: "PoliceClearance", icon: ShieldCheck, label: "Police Clearance" },
+  { docType: "ProofOfAddress", icon: Home, label: "Proof of Address" },
+  { docType: "Certificate", icon: Award, label: "Certificate / Qualification" },
+];
+
 function initials(name: string) {
   return name
     .split(" ")
@@ -82,6 +139,12 @@ function splitCsv(val: string | null): string[] {
     .filter(Boolean);
 }
 
+const STATUS_BADGE: Record<DocStatus, string> = {
+  Approved: "text-green-700 bg-white border-green-200",
+  Pending: "text-amber-700 bg-white border-amber-200",
+  Rejected: "text-red-700 bg-white border-red-200",
+};
+
 interface UploadState {
   loading: boolean;
   error: string;
@@ -94,15 +157,34 @@ export function AgentProfile() {
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [viewer, setViewer] = useState<{ url: string; title: string } | null>(
+    null
+  );
 
   const [coverageItems, setCoverageItems] = useState<CoverageItem[]>([]);
   const [coverageErrors, setCoverageErrors] = useState<string[]>([]);
   const [selectedLanguages, setSelectedLanguages] = useState<string[]>([]);
   const [selectedSpecialties, setSelectedSpecialties] = useState<string[]>([]);
+  const [momoNumber, setMomoNumber] = useState("");
+  const [momoNetwork, setMomoNetwork] = useState("");
+  const [experienceLevel, setExperienceLevel] = useState<"Expert" | "Intermediate" | "New" | "">("");
 
-  const [uploads, setUploads] = useState<
-    Record<"avatar" | "ghanaCard" | "partnershipAgreement", UploadState>
-  >({
+  // Identity & contact — editable fields persisted via profileApi.update
+  // (PUT /profile/me -> updateUserProfile). Prefilled from profileApi.me().
+  const [dateOfBirth, setDateOfBirth] = useState("");
+  const [gender, setGender] = useState<"" | "Female" | "Male" | "Other">("");
+  const [nationality, setNationality] = useState("");
+  const [residentialAddress, setResidentialAddress] = useState("");
+  const [digitalAddress, setDigitalAddress] = useState("");
+  const [emergencyContactName, setEmergencyContactName] = useState("");
+  const [emergencyContactRelationship, setEmergencyContactRelationship] =
+    useState("");
+  const [emergencyContactPhone, setEmergencyContactPhone] = useState("");
+
+  // Upload progress keyed by doc key. The first three keep their original named
+  // slots (avatar/ghanaCard/partnershipAgreement); supporting docs use their
+  // docType string as the key.
+  const [uploads, setUploads] = useState<Record<string, UploadState>>({
     avatar: { loading: false, error: "" },
     ghanaCard: { loading: false, error: "" },
     partnershipAgreement: { loading: false, error: "" },
@@ -111,6 +193,12 @@ export function AgentProfile() {
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const ghanaCardInputRef = useRef<HTMLInputElement>(null);
   const agreementInputRef = useRef<HTMLInputElement>(null);
+  // One hidden file input per supporting doc type (kept in a ref map so a
+  // single click target can trigger the right one).
+  const supportInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+
+  const allDocuments: AgentDoc[] = userProfile?.documents ?? agentProfile?.documents ?? [];
+  const docByType = (type: DocType) => allDocuments.find((d) => d.docType === type);
 
   const refreshProfile = async () => {
     try {
@@ -135,7 +223,19 @@ export function AgentProfile() {
           setCoverageItems(coverageToItems(agent.coverage));
           setSelectedLanguages(splitCsv(agent.languages));
           setSelectedSpecialties(splitCsv(agent.specialties));
+          setMomoNumber(agent.momoNumber ?? "");
+          setMomoNetwork(agent.momoNetwork ?? "");
+          setExperienceLevel(agent.experienceLevel ?? "");
         }
+        // Prefill identity & contact from the user profile.
+        setDateOfBirth(user.dateOfBirth ? user.dateOfBirth.slice(0, 10) : "");
+        setGender((user.gender as "" | "Female" | "Male" | "Other") ?? "");
+        setNationality(user.nationality ?? "");
+        setResidentialAddress(user.residentialAddress ?? "");
+        setDigitalAddress(user.digitalAddress ?? "");
+        setEmergencyContactName(user.emergencyContactName ?? "");
+        setEmergencyContactRelationship(user.emergencyContactRelationship ?? "");
+        setEmergencyContactPhone(user.emergencyContactPhone ?? "");
       })
       .catch((err: any) => setError(err.message || "Failed to load profile"))
       .finally(() => setLoading(false));
@@ -157,11 +257,28 @@ export function AgentProfile() {
     setSaving(true);
     setError("");
     try {
+      // Persist identity & contact first (user profile), then the agent
+      // profile — both under the single "Save Changes" action. Empty strings
+      // are sent as undefined so updateUserProfile (optional fields) doesn't
+      // overwrite existing values with blanks.
+      await profileApi.update({
+        dateOfBirth: dateOfBirth || undefined,
+        gender: gender || undefined,
+        nationality: nationality || undefined,
+        residentialAddress: residentialAddress || undefined,
+        digitalAddress: digitalAddress || undefined,
+        emergencyContactName: emergencyContactName || undefined,
+        emergencyContactRelationship: emergencyContactRelationship || undefined,
+        emergencyContactPhone: emergencyContactPhone || undefined,
+      });
       await profileApi.updateAgentProfile({
         coverage: itemsToCoverage(coverageItems),
-        languages: selectedLanguages.join(","),
-        specialties: selectedSpecialties.join(","),
+        experienceLevel: experienceLevel || undefined,
         isOnboardingComplete: true,
+        languages: selectedLanguages.join(","),
+        momoNetwork: momoNetwork || undefined,
+        momoNumber: momoNumber || undefined,
+        specialties: selectedSpecialties.join(","),
       });
       setCoverageErrors([]);
       setSaved(true);
@@ -175,6 +292,26 @@ export function AgentProfile() {
     }
   };
 
+  // Upload a supporting doc (police clearance / proof of address / certificate)
+  // through the generalized agent_documents endpoint.
+  const handleSupportingUpload = async (
+    file: File,
+    docType: "Certificate" | "PoliceClearance" | "ProofOfAddress",
+  ) => {
+    setUploads((prev) => ({ ...prev, [docType]: { loading: true, error: "" } }));
+    try {
+      const { publicUrl } = await uploadApi.uploadFile(file, "documents");
+      await profileApi.uploadAgentDocument({ docType, documentUrl: publicUrl });
+      await refreshProfile();
+      setUploads((prev) => ({ ...prev, [docType]: { loading: false, error: "" } }));
+    } catch (err: any) {
+      setUploads((prev) => ({
+        ...prev,
+        [docType]: { loading: false, error: err.message || "Upload failed" },
+      }));
+    }
+  };
+
   const handleUpload = async (
     file: File,
     docType: "avatar" | "ghanaCard" | "partnershipAgreement",
@@ -185,21 +322,15 @@ export function AgentProfile() {
       [docType]: { loading: true, error: "" },
     }));
     try {
-      const presign = await uploadApi.presign(file.name, folder, file.type);
-      const uploadRes = await fetch(presign.url, {
-        method: "PUT",
-        body: file,
-        headers: { "Content-Type": file.type },
-      });
-      if (!uploadRes.ok) throw new Error("Upload failed");
+      const { publicUrl } = await uploadApi.uploadFile(file, folder);
 
       if (docType === "avatar") {
-        await profileApi.uploadAvatar({ imageUrl: presign.publicUrl });
+        await profileApi.uploadAvatar({ imageUrl: publicUrl });
       } else if (docType === "ghanaCard") {
-        await profileApi.uploadGhanaCard({ documentUrl: presign.publicUrl });
+        await profileApi.uploadGhanaCard({ documentUrl: publicUrl });
       } else if (docType === "partnershipAgreement") {
         await profileApi.uploadPartnershipAgreement({
-          documentUrl: presign.publicUrl,
+          documentUrl: publicUrl,
         });
       }
 
@@ -247,13 +378,29 @@ export function AgentProfile() {
 
   const name = userProfile?.fullName ?? "Agent";
   const isVerified = userProfile?.isVerified ?? false;
-  const hasGhanaCard =
-    !!userProfile?.ghanaCardUrl || !!userProfile?.ghanaCardNumber;
+  const ghanaCardDoc = docByType("GhanaCard");
+  const hasGhanaCard = !!ghanaCardDoc || !!userProfile?.ghanaCardNumber;
   const hasAvatar = !!userProfile?.avatarUrl;
-  const hasPartnershipAgreement = !!agentProfile?.partnershipAgreementUrl;
+  const agreementDoc = docByType("PartnershipAgreement");
+  const hasPartnershipAgreement = !!agreementDoc;
+
+  const docBadge = (status?: DocStatus) =>
+    status ? (
+      <span
+        className={`text-xs font-medium px-2 py-0.5 rounded-sm border shadow-sm ${STATUS_BADGE[status]}`}
+      >
+        {status}
+      </span>
+    ) : null;
 
   return (
     <div className="space-y-6">
+      <DocumentViewer
+        url={viewer?.url ?? null}
+        title={viewer?.title}
+        isOpen={!!viewer}
+        onClose={() => setViewer(null)}
+      />
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h2 className="text-2xl font-heading font-bold text-charcoal-950">
@@ -315,6 +462,11 @@ export function AgentProfile() {
               <p className="text-sm font-bold text-charcoal-500 uppercase tracking-wide mt-1">
                 {isVerified ? "Verified TEPS Agent" : "Pending Verification"}
               </p>
+              {agentProfile?.agentCode && (
+                <p className="text-xs font-bold text-brand-700 mt-1">
+                  {agentProfile.agentCode}
+                </p>
+              )}
               <input
                 type="file"
                 ref={avatarInputRef}
@@ -368,17 +520,22 @@ export function AgentProfile() {
                   >
                     Ghana Card
                   </span>
+                  {docBadge(ghanaCardDoc?.status)}
                 </div>
                 <div className="flex items-center gap-2">
-                  {hasGhanaCard && userProfile?.ghanaCardUrl && (
-                    <a
-                      href={userProfile.ghanaCardUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                  {ghanaCardDoc && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setViewer({
+                          url: fileProxyUrl(ghanaCardDoc.fileUrl),
+                          title: "Ghana Card",
+                        })
+                      }
                       className="text-xs font-medium text-brand-600 hover:text-brand-700 flex items-center gap-1"
                     >
                       <Eye className="h-3 w-3" /> View
-                    </a>
+                    </button>
                   )}
                   <Button
                     variant="outline"
@@ -446,19 +603,23 @@ export function AgentProfile() {
                   >
                     Partnership Agreement
                   </span>
+                  {docBadge(agreementDoc?.status)}
                 </div>
                 <div className="flex items-center gap-2">
-                  {hasPartnershipAgreement &&
-                    agentProfile?.partnershipAgreementUrl && (
-                      <a
-                        href={agentProfile.partnershipAgreementUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-xs font-medium text-brand-600 hover:text-brand-700 flex items-center gap-1"
-                      >
-                        <Eye className="h-3 w-3" /> View
-                      </a>
-                    )}
+                  {agreementDoc && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setViewer({
+                          url: fileProxyUrl(agreementDoc.fileUrl),
+                          title: "Partnership Agreement",
+                        })
+                      }
+                      className="text-xs font-medium text-brand-600 hover:text-brand-700 flex items-center gap-1"
+                    >
+                      <Eye className="h-3 w-3" /> View
+                    </button>
+                  )}
                   <Button
                     variant="outline"
                     size="sm"
@@ -481,12 +642,203 @@ export function AgentProfile() {
                   {uploads.partnershipAgreement.error}
                 </p>
               )}
+
+              {/* Supporting documents (police clearance, proof of address, certificate) */}
+              {SUPPORTING_DOC_TYPES.map(({ docType, icon: Icon, label }) => {
+                const doc = docByType(docType);
+                const present = !!doc;
+                const state = uploads[docType];
+                return (
+                  <div key={docType}>
+                    <input
+                      type="file"
+                      ref={(el) => {
+                        supportInputRefs.current[docType] = el;
+                      }}
+                      className="hidden"
+                      accept=".pdf,.jpg,.jpeg,.png"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) handleSupportingUpload(file, docType);
+                      }}
+                    />
+                    <div
+                      className={`flex items-center justify-between p-3 border rounded-sm ${present ? "bg-green-50 border-green-200" : "bg-amber-50 border-amber-200"}`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <Icon
+                          className={`h-4 w-4 ${present ? "text-green-600" : "text-amber-600"}`}
+                        />
+                        <span
+                          className={`text-sm font-bold ${present ? "text-green-900" : "text-amber-900"}`}
+                        >
+                          {label}
+                        </span>
+                        {docBadge(doc?.status)}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {doc && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setViewer({
+                                url: fileProxyUrl(doc.fileUrl),
+                                title: label,
+                              })
+                            }
+                            className="text-xs font-medium text-brand-600 hover:text-brand-700 flex items-center gap-1"
+                          >
+                            <Eye className="h-3 w-3" /> View
+                          </button>
+                        )}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-[10px] font-bold px-2 border-charcoal-200"
+                          disabled={state?.loading}
+                          onClick={() =>
+                            supportInputRefs.current[docType]?.click()
+                          }
+                        >
+                          {state?.loading ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : present ? (
+                            "Re-upload"
+                          ) : (
+                            "Upload"
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+                    {state?.error && (
+                      <p className="text-xs text-red-600 -mt-3 ml-1">
+                        {state.error}
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </CardContent>
         </Card>
 
-        {/* Routing Preferences (Coverage, Language, Spec) */}
+        {/* Routing Preferences (Coverage, Language, Spec, Payout, Experience) */}
         <div className="xl:col-span-2 space-y-6">
+          {/* Identity & Contact — editable; saved via profileApi.update. */}
+          <Card className="border-charcoal-200 shadow-sm rounded-sm">
+            <CardHeader className="bg-charcoal-50 border-b border-charcoal-100 pb-4">
+              <CardTitle className="text-base font-bold text-charcoal-900 flex items-center gap-2">
+                <User className="h-4 w-4 text-brand-600" /> Identity &amp; Contact
+              </CardTitle>
+              <CardDescription className="text-sm font-medium text-charcoal-600">
+                Personal details on file. Keeping these current helps with
+                verification and emergency reach-out.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="p-6 space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <label className="block">
+                  <span className="block text-xs font-bold uppercase tracking-wider text-charcoal-500 mb-1">
+                    Date of birth
+                  </span>
+                  <input
+                    type="date"
+                    value={dateOfBirth}
+                    onChange={(e) => setDateOfBirth(e.target.value)}
+                    className="w-full bg-white border border-charcoal-200 focus:border-brand-500 focus:ring-1 focus:ring-brand-500 text-sm rounded-sm px-3 py-2 outline-none font-medium text-charcoal-900"
+                  />
+                </label>
+                <label className="block">
+                  <span className="block text-xs font-bold uppercase tracking-wider text-charcoal-500 mb-1">
+                    Gender
+                  </span>
+                  <select
+                    value={gender}
+                    onChange={(e) =>
+                      setGender(
+                        e.target.value as "" | "Female" | "Male" | "Other",
+                      )
+                    }
+                    className="w-full bg-white border border-charcoal-200 focus:border-brand-500 focus:ring-1 focus:ring-brand-500 text-sm rounded-sm px-3 py-2 outline-none font-bold text-charcoal-900"
+                  >
+                    <option value="">Select…</option>
+                    {GENDER_OPTIONS.map((g) => (
+                      <option key={g} value={g}>
+                        {g}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="block text-xs font-bold uppercase tracking-wider text-charcoal-500 mb-1">
+                    Nationality
+                  </span>
+                  <input
+                    value={nationality}
+                    onChange={(e) => setNationality(e.target.value)}
+                    className="w-full bg-white border border-charcoal-200 focus:border-brand-500 focus:ring-1 focus:ring-brand-500 text-sm rounded-sm px-3 py-2 outline-none font-medium text-charcoal-900"
+                  />
+                </label>
+                <label className="block">
+                  <span className="block text-xs font-bold uppercase tracking-wider text-charcoal-500 mb-1">
+                    Digital address (GhanaPost)
+                  </span>
+                  <input
+                    value={digitalAddress}
+                    onChange={(e) => setDigitalAddress(e.target.value)}
+                    placeholder="e.g. GA-144-1234"
+                    className="w-full bg-white border border-charcoal-200 focus:border-brand-500 focus:ring-1 focus:ring-brand-500 text-sm rounded-sm px-3 py-2 outline-none font-medium text-charcoal-900"
+                  />
+                </label>
+                <label className="block md:col-span-2">
+                  <span className="block text-xs font-bold uppercase tracking-wider text-charcoal-500 mb-1">
+                    Residential address
+                  </span>
+                  <input
+                    value={residentialAddress}
+                    onChange={(e) => setResidentialAddress(e.target.value)}
+                    className="w-full bg-white border border-charcoal-200 focus:border-brand-500 focus:ring-1 focus:ring-brand-500 text-sm rounded-sm px-3 py-2 outline-none font-medium text-charcoal-900"
+                  />
+                </label>
+                <label className="block">
+                  <span className="block text-xs font-bold uppercase tracking-wider text-charcoal-500 mb-1">
+                    Emergency contact name
+                  </span>
+                  <input
+                    value={emergencyContactName}
+                    onChange={(e) => setEmergencyContactName(e.target.value)}
+                    className="w-full bg-white border border-charcoal-200 focus:border-brand-500 focus:ring-1 focus:ring-brand-500 text-sm rounded-sm px-3 py-2 outline-none font-medium text-charcoal-900"
+                  />
+                </label>
+                <label className="block">
+                  <span className="block text-xs font-bold uppercase tracking-wider text-charcoal-500 mb-1">
+                    Emergency contact relationship
+                  </span>
+                  <input
+                    value={emergencyContactRelationship}
+                    onChange={(e) => setEmergencyContactRelationship(e.target.value)}
+                    placeholder="e.g. Sibling, Spouse"
+                    className="w-full bg-white border border-charcoal-200 focus:border-brand-500 focus:ring-1 focus:ring-brand-500 text-sm rounded-sm px-3 py-2 outline-none font-medium text-charcoal-900"
+                  />
+                </label>
+                <label className="block md:col-span-2">
+                  <span className="block text-xs font-bold uppercase tracking-wider text-charcoal-500 mb-1">
+                    Emergency contact phone
+                  </span>
+                  <input
+                    type="tel"
+                    value={emergencyContactPhone}
+                    onChange={(e) =>
+                      setEmergencyContactPhone(e.target.value.replace(/\D/g, ""))
+                    }
+                    placeholder="e.g. 024 123 4567"
+                    className="w-full bg-white border border-charcoal-200 focus:border-brand-500 focus:ring-1 focus:ring-brand-500 text-sm rounded-sm px-3 py-2 outline-none font-medium text-charcoal-900"
+                  />
+                </label>
+              </div>
+            </CardContent>
+          </Card>
+
           {/* Coverage Area */}
           <Card className="border-charcoal-200 shadow-sm rounded-sm">
             <CardHeader className="bg-charcoal-50 border-b border-charcoal-100 pb-4">
@@ -520,7 +872,7 @@ export function AgentProfile() {
                 requests to you.
               </CardDescription>
             </CardHeader>
-            <CardContent className="p-6">
+            <CardContent className="p-6 space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 <div>
                   <label className="text-xs font-bold uppercase tracking-wider text-charcoal-500 mb-2 block">
@@ -568,6 +920,74 @@ export function AgentProfile() {
                     ))}
                   </div>
                 </div>
+              </div>
+
+              {/* Experience level — surfaced to admin review and used for routing. */}
+              <div className="border-t border-charcoal-100 pt-4">
+                <label className="text-xs font-bold uppercase tracking-wider text-charcoal-500 mb-2 block">
+                  Experience Level
+                </label>
+                <select
+                  value={experienceLevel}
+                  onChange={(e) =>
+                    setExperienceLevel(
+                      e.target.value as "" | "Expert" | "Intermediate" | "New",
+                    )
+                  }
+                  className="w-full md:w-1/2 bg-white border border-charcoal-200 focus:border-brand-500 focus:ring-1 focus:ring-brand-500 text-sm rounded-sm px-3 py-2 outline-none font-bold text-charcoal-900"
+                >
+                  <option value="">Select…</option>
+                  {EXPERIENCE_LEVELS.map((lvl) => (
+                    <option key={lvl.value} value={lvl.value}>
+                      {lvl.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Payout details (momo) — required to request payouts; previously
+              collected in the server interface but never sent by the UI. */}
+          <Card className="border-charcoal-200 shadow-sm rounded-sm">
+            <CardHeader className="bg-charcoal-50 border-b border-charcoal-100 pb-4">
+              <CardTitle className="text-base font-bold text-charcoal-900 flex items-center gap-2">
+                <FileCheck className="h-4 w-4 text-brand-600" /> Payout Details
+              </CardTitle>
+              <CardDescription className="text-sm font-medium text-charcoal-600">
+                Mobile money account used when you request commission payouts.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="p-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <label className="block">
+                  <span className="block text-xs font-bold uppercase tracking-wider text-charcoal-500 mb-1">
+                    MoMo Number
+                  </span>
+                  <input
+                    value={momoNumber}
+                    onChange={(e) => setMomoNumber(e.target.value)}
+                    placeholder="e.g. 024 000 0000"
+                    className="w-full bg-white border border-charcoal-200 focus:border-brand-500 focus:ring-1 focus:ring-brand-500 text-sm rounded-sm px-3 py-2 outline-none font-medium text-charcoal-900"
+                  />
+                </label>
+                <label className="block">
+                  <span className="block text-xs font-bold uppercase tracking-wider text-charcoal-500 mb-1">
+                    MoMo Network
+                  </span>
+                  <select
+                    value={momoNetwork}
+                    onChange={(e) => setMomoNetwork(e.target.value)}
+                    className="w-full bg-white border border-charcoal-200 focus:border-brand-500 focus:ring-1 focus:ring-brand-500 text-sm rounded-sm px-3 py-2 outline-none font-bold text-charcoal-900"
+                  >
+                    <option value="">Select…</option>
+                    {MOMO_NETWORKS.map((n) => (
+                      <option key={n} value={n}>
+                        {n}
+                      </option>
+                    ))}
+                  </select>
+                </label>
               </div>
             </CardContent>
           </Card>

@@ -14,11 +14,13 @@ import {
     Bath,
     Loader2,
     Home,
+    ShieldCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import PropertyCard from "@/components/PropertyCard";
+import { imageVariantUrl } from "@/lib/images";
 import { propertiesApi } from "@/lib/api";
-import { REGIONS } from "@/lib/data";
+import { fetchRegions, getRegionBySlug, type GeoRegion } from "@/lib/geo";
 
 interface PropertyItem {
     id: number;
@@ -65,12 +67,19 @@ function PropertiesContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
 
-    // Filter state synced with URL
+    // Filter state synced with URL. regionId is always a NUMERIC geo id (or "");
+    // an incoming slug like ?regionId=greater-accra is resolved to numeric on
+    // mount below — the backend filters by Number(regionId), so a slug here
+    // would silently yield zero results.
     const [search, setSearch] = useState(searchParams.get("search") ?? "");
-    const [regionId, setRegionId] = useState(searchParams.get("regionId") ?? "");
+    const initialRegion = searchParams.get("regionId") ?? "";
+    const [regionId, setRegionId] = useState(/^\d+$/.test(initialRegion) ? initialRegion : "");
+    const [regionReady, setRegionReady] = useState(!initialRegion || /^\d+$/.test(initialRegion));
+    const [regions, setRegions] = useState<GeoRegion[]>([]);
     const [category, setCategory] = useState(searchParams.get("category") ?? "");
     const [transactionType, setTransactionType] = useState(searchParams.get("transactionType") ?? "");
     const [propertyType, setPropertyType] = useState(searchParams.get("propertyType") ?? "");
+    const [verified, setVerified] = useState(searchParams.get("verified") === "true");
     const [minPrice, setMinPrice] = useState(searchParams.get("minPrice") ?? "");
     const [maxPrice, setMaxPrice] = useState(searchParams.get("maxPrice") ?? "");
     const [bedrooms, setBedrooms] = useState(searchParams.get("bedrooms") ?? "");
@@ -84,11 +93,50 @@ function PropertiesContent() {
     const [error, setError] = useState("");
     const [showFilters, setShowFilters] = useState(false);
 
+    // Populate the region filter from the real /api/geo/regions list (cached).
+    useEffect(() => {
+        fetchRegions()
+            .then(setRegions)
+            .catch(() => setRegions([]));
+    }, []);
+
+    // Resolve an incoming slug regionId (?regionId=greater-accra, as the region
+    // page's "View all" link emits) to its numeric geo id so the filter matches
+    // a button and the backend query works. Numeric (or empty) ids are ready as-is.
+    useEffect(() => {
+        const raw = searchParams.get("regionId") ?? "";
+        if (!raw || /^\d+$/.test(raw)) {
+            setRegionReady(true);
+            return;
+        }
+        let cancelled = false;
+        getRegionBySlug(raw)
+            .then((r) => {
+                if (!cancelled) {
+                    setRegionId(r ? String(r.id) : "");
+                    setRegionReady(true);
+                }
+            })
+            .catch(() => {
+                if (!cancelled) {
+                    setRegionId("");
+                    setRegionReady(true);
+                }
+            });
+        return () => {
+            cancelled = true;
+        };
+        // Resolve once on mount; subsequent regionId changes come from the buttons
+        // and are already numeric.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
     const activeFilterCount = [
         regionId,
         category,
         transactionType,
         propertyType,
+        verified || "",
         minPrice,
         maxPrice,
         bedrooms,
@@ -103,6 +151,7 @@ function PropertiesContent() {
             if (category) params.set("category", category);
             if (transactionType) params.set("transactionType", transactionType);
             if (propertyType) params.set("propertyType", propertyType);
+            if (verified) params.set("verified", "true");
             if (minPrice) params.set("minPrice", minPrice);
             if (maxPrice) params.set("maxPrice", maxPrice);
             if (bedrooms) params.set("bedrooms", bedrooms);
@@ -112,7 +161,7 @@ function PropertiesContent() {
             if (p !== "1") params.set("page", p);
             return params;
         },
-        [search, regionId, category, transactionType, propertyType, minPrice, maxPrice, bedrooms, bathrooms, sort, page]
+        [search, regionId, category, transactionType, propertyType, verified, minPrice, maxPrice, bedrooms, bathrooms, sort, page]
     );
 
     const fetchProperties = useCallback(() => {
@@ -129,6 +178,7 @@ function PropertiesContent() {
         if (category) filters.category = category;
         if (transactionType) filters.transactionType = transactionType;
         if (propertyType) filters.propertyType = propertyType;
+        if (verified) filters.verified = "true";
         if (minPrice) filters.minPrice = minPrice;
         if (maxPrice) filters.maxPrice = maxPrice;
         if (bedrooms) filters.bedrooms = bedrooms;
@@ -151,7 +201,7 @@ function PropertiesContent() {
                 setError(err.message || "Failed to load properties");
             })
             .finally(() => setLoading(false));
-    }, [search, regionId, category, transactionType, propertyType, minPrice, maxPrice, bedrooms, bathrooms, sort, page]);
+    }, [search, regionId, category, transactionType, propertyType, verified, minPrice, maxPrice, bedrooms, bathrooms, sort, page]);
 
     // Sync URL when filters change
     useEffect(() => {
@@ -160,8 +210,10 @@ function PropertiesContent() {
         if (newUrl !== window.location.pathname + window.location.search) {
             router.replace(newUrl, { scroll: false });
         }
-        fetchProperties();
-    }, [buildQuery, fetchProperties, router]);
+        // Don't fetch until an incoming slug regionId has been resolved to numeric,
+        // otherwise the first request would filter by the slug (→ NaN → no results).
+        if (regionReady) fetchProperties();
+    }, [buildQuery, fetchProperties, router, regionReady]);
 
     const clearFilters = () => {
         setSearch("");
@@ -169,6 +221,7 @@ function PropertiesContent() {
         setCategory("");
         setTransactionType("");
         setPropertyType("");
+        setVerified(false);
         setMinPrice("");
         setMaxPrice("");
         setBedrooms("");
@@ -293,24 +346,32 @@ function PropertiesContent() {
                                         Region
                                     </label>
                                     <div className="space-y-1 max-h-48 overflow-y-auto pr-1">
-                                        {REGIONS.map((r) => (
-                                            <button
-                                                key={r.id}
-                                                type="button"
-                                                onClick={() => { setRegionId(regionId === r.id ? "" : r.id); setPage(1); }}
-                                                className={`flex items-center justify-between w-full px-3 py-2 rounded-lg text-sm font-medium transition-all ${
-                                                    regionId === r.id
-                                                        ? "bg-brand-50 text-brand-700"
-                                                        : "text-slate-700 hover:bg-slate-50"
-                                                }`}
-                                            >
-                                                <span className="flex items-center gap-2">
-                                                    <MapPin className="h-3.5 w-3.5 text-slate-400" />
-                                                    {r.name}
-                                                </span>
-                                                {regionId === r.id && <span className="text-brand-600 text-xs font-bold">&#x2713;</span>}
-                                            </button>
-                                        ))}
+                                        {regions.length > 0 ? (
+                                            regions.map((r) => {
+                                                const id = String(r.id);
+                                                const selected = regionId === id;
+                                                return (
+                                                    <button
+                                                        key={id}
+                                                        type="button"
+                                                        onClick={() => { setRegionId(selected ? "" : id); setPage(1); }}
+                                                        className={`flex items-center justify-between w-full px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+                                                            selected
+                                                                ? "bg-brand-50 text-brand-700"
+                                                                : "text-slate-700 hover:bg-slate-50"
+                                                        }`}
+                                                    >
+                                                        <span className="flex items-center gap-2">
+                                                            <MapPin className="h-3.5 w-3.5 text-slate-400" />
+                                                            {r.name}
+                                                        </span>
+                                                        {selected && <span className="text-brand-600 text-xs font-bold">&#x2713;</span>}
+                                                    </button>
+                                                );
+                                            })
+                                        ) : (
+                                            <p className="px-3 py-2 text-xs text-slate-400">Loading regions…</p>
+                                        )}
                                     </div>
                                 </div>
 
@@ -406,6 +467,26 @@ function PropertiesContent() {
                                         ))}
                                     </div>
                                 </div>
+
+                                {/* Verified only */}
+                                <div>
+                                    <label className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3 block">
+                                        Verification
+                                    </label>
+                                    <button
+                                        type="button"
+                                        onClick={() => { setVerified(!verified); setPage(1); }}
+                                        className={`flex items-center gap-2 w-full px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+                                            verified
+                                                ? "bg-brand-50 text-brand-700"
+                                                : "text-slate-700 hover:bg-slate-50"
+                                        }`}
+                                    >
+                                        <ShieldCheck className="h-3.5 w-3.5 text-slate-400" />
+                                        Verified only
+                                        {verified && <span className="ml-auto text-brand-600 text-xs font-bold">&#x2713;</span>}
+                                    </button>
+                                </div>
                             </div>
                         </aside>
                     )}
@@ -442,7 +523,7 @@ function PropertiesContent() {
                                                 location={property.location}
                                                 bedrooms={property.bedrooms}
                                                 bathrooms={property.bathrooms}
-                                                imageUrl={property.images?.[0]?.url ?? "/placeholder.jpg"}
+                                                imageUrl={imageVariantUrl(property.images?.[0], "thumb") ?? "/placeholder.jpg"}
                                                 isVerified={property.isVerified}
                                                 category={property.category as "Rent" | "Sale" | "Rent-to-Own"}
                                             />

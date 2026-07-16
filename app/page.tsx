@@ -6,10 +6,12 @@ import { useRouter } from "next/navigation";
 import { Loader2, Search, ShieldCheck, MapPin, TrendingUp, Award } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import PropertyCard from "@/components/PropertyCard";
+import { imageVariantUrl } from "@/lib/images";
 import InteractiveMap from "@/components/InteractiveMap";
 import { PhotonSearch } from "@/components/PhotonSearch";
 import { propertiesApi } from "@/lib/api";
 import { REGIONS } from "@/lib/data";
+import { fetchRegions, type GeoRegion } from "@/lib/geo";
 
 interface FeaturedProperty {
     id: number;
@@ -40,18 +42,34 @@ export default function Home() {
             .catch(() => setFeatured([]))
             .finally(() => setLoading(false));
 
-        Promise.all(
-            REGIONS.map((r) =>
-                propertiesApi
-                    .list({ regionId: r.id, status: "Live", limit: "1" })
-                    .then((res: any) => [r.id, res.pagination?.total ?? 0] as [string, number])
-                    .catch(() => [r.id, 0] as [string, number])
-            )
-        ).then((results) => {
+        // Real per-region listing counts. The mock REGIONS use slug ids, but the
+        // backend filter keys off the NUMERIC geo id, so resolve each mock region
+        // to its real id first; without this every count came back NaN→0 and the
+        // cards fell back to the mock activeListings numbers.
+        (async () => {
+            const realRegions = await fetchRegions().catch(() => [] as GeoRegion[]);
+            const idMap: Record<string, number> = {};
+            for (const mock of REGIONS) {
+                const real = realRegions.find(
+                    (rr) => rr.name.toLowerCase() === mock.name.toLowerCase(),
+                );
+                if (real) idMap[mock.id] = real.id;
+            }
+            const results = await Promise.all(
+                REGIONS.map((r) => {
+                    const numId = idMap[r.id];
+                    if (numId === undefined)
+                        return Promise.resolve([r.id, 0] as [string, number]);
+                    return propertiesApi
+                        .list({ regionId: String(numId), status: "Live", limit: "1" })
+                        .then((res: any) => [r.id, res.pagination?.total ?? 0] as [string, number])
+                        .catch(() => [r.id, 0] as [string, number]);
+                }),
+            );
             const map: Record<string, number> = {};
             for (const [id, count] of results) map[id] = count;
             setRegionCounts(map);
-        });
+        })();
     }, []);
 
     return (
@@ -153,7 +171,7 @@ export default function Home() {
                                         location={property.location}
                                         bedrooms={property.bedrooms}
                                         bathrooms={property.bathrooms}
-                                        imageUrl={property.images?.[0]?.url ?? "/placeholder.jpg"}
+                                        imageUrl={imageVariantUrl(property.images?.[0], "thumb") ?? "/placeholder.jpg"}
                                         isVerified={property.isVerified}
                                         category={property.category as "Rent" | "Sale" | "Rent-to-Own"}
                                     />

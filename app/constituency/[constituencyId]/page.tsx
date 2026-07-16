@@ -5,9 +5,18 @@ import Link from "next/link";
 import { ArrowLeft, SlidersHorizontal, Search, ChevronLeft, ChevronRight, MapPin, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import PropertyCard from "@/components/PropertyCard";
+import { imageVariantUrl } from "@/lib/images";
 import InteractiveMap from "@/components/InteractiveMap";
 import { propertiesApi } from "@/lib/api";
-import { CONSTITUENCIES, REGIONS, getConstituencyById, getRegionById } from "@/lib/data";
+import {
+    getConstituencyBySlug,
+    getRegionById,
+    mockConstituencyFor,
+    mockRegionFor,
+    slugify,
+    type GeoConstituency,
+    type GeoRegion,
+} from "@/lib/geo";
 
 interface ApiProperty {
     id: number;
@@ -28,13 +37,9 @@ export default function ConstituencyPage({ params }: { params: Promise<{ constit
     const resolvedParams = use(params);
     const constituencyId = resolvedParams.constituencyId;
 
-    const constituency = getConstituencyById(constituencyId)
-        ?? CONSTITUENCIES.find((c) => c.name === decodeURIComponent(constituencyId));
-
-    const constituencyName = constituency?.name ?? decodeURIComponent(constituencyId);
-    const districts = constituency?.districts ?? ["Main District"];
-    const parentRegion = getRegionById(constituency?.regionId ?? "") ?? REGIONS.find((r) => r.id === constituency?.regionId);
-    const parentRegionName = parentRegion?.name;
+    const [constituency, setConstituency] = useState<GeoConstituency | null>(null);
+    const [parentRegion, setParentRegion] = useState<GeoRegion | null>(null);
+    const [geoResolved, setGeoResolved] = useState(false);
 
     const [properties, setProperties] = useState<ApiProperty[]>([]);
     const [total, setTotal] = useState(0);
@@ -44,12 +49,37 @@ export default function ConstituencyPage({ params }: { params: Promise<{ constit
     const [selectedCategory, setSelectedCategory] = useState("All");
     const itemsPerPage = 9;
 
+    // Resolve the URL slug to the real numeric constituency, then its parent
+    // region. Filtering properties by the slug was the bug (Number(slug) → NaN
+    // → empty results); we filter by the resolved numeric id instead.
     useEffect(() => {
+        let cancelled = false;
+        setGeoResolved(false);
         setLoading(true);
-        setPage(1);
+        (async () => {
+            const c = await getConstituencyBySlug(constituencyId).catch(() => null);
+            if (cancelled) return;
+            setConstituency(c);
+            setParentRegion(c ? await getRegionById(c.regionId).catch(() => null) : null);
+            setPage(1);
+            setGeoResolved(true);
+        })();
+        return () => { cancelled = true; };
+    }, [constituencyId]);
+
+    useEffect(() => {
+        if (!geoResolved) return;
+        if (!constituency) {
+            setProperties([]);
+            setTotal(0);
+            setLoading(false);
+            return;
+        }
+        setLoading(true);
         const filters: Record<string, string> = {
-            constituencyId,
+            constituencyId: String(constituency.id),
             limit: String(itemsPerPage),
+            page: String(page),
             status: "Live",
         };
         if (searchQuery) filters.search = searchQuery;
@@ -66,27 +96,12 @@ export default function ConstituencyPage({ params }: { params: Promise<{ constit
                 setTotal(0);
             })
             .finally(() => setLoading(false));
-    }, [constituencyId, searchQuery, selectedCategory]);
+    }, [geoResolved, constituency, page, searchQuery, selectedCategory]);
 
-    useEffect(() => {
-        setLoading(true);
-        const filters: Record<string, string> = {
-            constituencyId,
-            limit: String(itemsPerPage),
-            page: String(page),
-            status: "Live",
-        };
-        if (searchQuery) filters.search = searchQuery;
-        if (selectedCategory !== "All") filters.category = selectedCategory;
-
-        propertiesApi
-            .list(filters)
-            .then((res: any) => {
-                setProperties(res.data ?? []);
-            })
-            .catch(() => setProperties([]))
-            .finally(() => setLoading(false));
-    }, [page]);
+    const mockConstituency = mockConstituencyFor(constituency);
+    const constituencyName = constituency?.name ?? mockConstituency?.name ?? decodeURIComponent(constituencyId);
+    const districts = mockConstituency?.districts ?? ["Main District"];
+    const parentRegionName = parentRegion?.name ?? mockRegionFor(parentRegion)?.name;
 
     const totalPages = Math.ceil(total / itemsPerPage);
 
@@ -96,7 +111,7 @@ export default function ConstituencyPage({ params }: { params: Promise<{ constit
             <div className="bg-white border-b border-slate-200 pt-8 pb-6 px-4 sm:px-6 lg:px-8 sticky top-20 z-40">
                 <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-end justify-between gap-6">
                     <div>
-                        <Link href={`/region/${constituency?.regionId ?? ""}`} className="inline-flex items-center gap-2 text-sm font-bold text-slate-500 hover:text-slate-900 mb-4 transition-colors uppercase tracking-wide">
+                        <Link href={parentRegion ? `/region/${slugify(parentRegion.name)}` : "/regions"} className="inline-flex items-center gap-2 text-sm font-bold text-slate-500 hover:text-slate-900 mb-4 transition-colors uppercase tracking-wide">
                             <ArrowLeft className="h-4 w-4" />
                             Back to {parentRegionName ?? "Region"}
                         </Link>
@@ -216,7 +231,7 @@ export default function ConstituencyPage({ params }: { params: Promise<{ constit
                                                 location={prop.location}
                                                 bedrooms={prop.bedrooms}
                                                 bathrooms={prop.bathrooms}
-                                                imageUrl={prop.images?.[0]?.url ?? "/placeholder.jpg"}
+                                                imageUrl={imageVariantUrl(prop.images?.[0], "thumb") ?? "/placeholder.jpg"}
                                                 isVerified={prop.isVerified}
                                                 category={prop.category as "Rent" | "Sale" | "Rent-to-Own"}
                                             />

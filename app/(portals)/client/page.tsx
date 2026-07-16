@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Search, Briefcase, LayoutDashboard, MessageSquare, Loader2 } from "lucide-react";
+import Link from "next/link";
+import { Search, Briefcase, LayoutDashboard, MessageSquare, Loader2, ShieldCheck } from "lucide-react";
 import { api } from "@/lib/api";
 
 import { ClientDiscovery } from "./components/ClientDiscovery";
@@ -64,8 +65,16 @@ export default function ClientPortal() {
                                 )}
                             </p>
                         </div>
-                        <div className="h-10 w-10 bg-brand-100 text-brand-700 rounded-full flex items-center justify-center font-bold font-heading text-sm">
-                            {initials}
+                        <div className="flex items-center gap-4">
+                            <Link
+                                href="/become-agent"
+                                className="inline-flex items-center gap-2 text-sm font-bold text-brand-700 hover:text-brand-800 border border-brand-200 hover:border-brand-300 rounded-lg px-3 py-2 bg-brand-50"
+                            >
+                                <ShieldCheck className="h-4 w-4" /> Become an Agent
+                            </Link>
+                            <div className="h-10 w-10 bg-brand-100 text-brand-700 rounded-full flex items-center justify-center font-bold font-heading text-sm">
+                                {initials}
+                            </div>
                         </div>
                     </div>
 

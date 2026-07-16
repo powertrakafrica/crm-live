@@ -1,15 +1,34 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import {
-    MapPin, Camera, Video,
-    CheckSquare, UploadCloud, CheckCircle,
-    WifiOff, Send, ShieldCheck, Loader2, X, Image as ImageIcon
+    MapPin, Camera,
+    CheckSquare, UploadCloud, CheckCircle2, XCircle,
+    Send, Loader2, Image as ImageIcon, ShieldCheck, MapPinned, FileText,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
+import { Card, CardContent } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
-import { agentApi, uploadApi, verificationApi } from "@/lib/api";
+import { agentApi, uploadApi, verificationApi, fileProxyUrl } from "@/lib/api";
+
+// The 6 check types seeded by createVerification. The agent's field visit is
+// the authority for the on-site checks (GPSLocation, PhotosMatch, BoundaryWall,
+// UtilitiesConnected); OwnershipDocument + LandCommissionSearch are document
+// checks the agent can still confirm by reviewing the owner's uploaded docs.
+// NOTE: the previous version keyed these as 'DocumentAuthenticity' and
+// 'GPSBoundary' — which never matched any seeded checkType, so those toggles
+// were dead (no backend check was ever updated). Fixed to the real enum keys.
+type CheckStatus = "Pending" | "Passed" | "Failed";
+
+interface VerificationCheck {
+    id: number;
+    checkType: string;
+    status: CheckStatus;
+    evidenceUrl?: string | null;
+    notes?: string | null;
+    gpsLatitude?: string | null;
+    gpsLongitude?: string | null;
+}
 
 interface AgentVerificationItem {
     id: number;
@@ -17,148 +36,265 @@ interface AgentVerificationItem {
     propertyTitle: string;
     propertyLocation: string;
     status: string;
-    checks: { id: number; checkType: string; status: string; evidenceUrl?: string | null }[];
+    checks: VerificationCheck[];
 }
 
-interface EvidenceItem {
-    url: string;
-    name: string;
-    checkId?: number;
+const CHECK_META: Record<string, { label: string; hint: string; field: boolean; icon: typeof MapPin }> = {
+    OwnershipDocument: { label: "Title Deed / Indenture", hint: "Owner's title document reviewed on-site.", field: false, icon: FileText },
+    GPSLocation: { label: "GPS Coordinates", hint: "Capture the device location at the property.", field: true, icon: MapPinned },
+    LandCommissionSearch: { label: "Land Commission Search", hint: "Land Commission records confirmed.", field: false, icon: FileText },
+    PhotosMatch: { label: "Photos Match Reality", hint: "Does the current state match the owner's uploaded photos?", field: true, icon: Camera },
+    BoundaryWall: { label: "Clear Boundary Wall", hint: "Is the property fully walled/fenced and demarcated?", field: true, icon: CheckSquare },
+    UtilitiesConnected: { label: "Utilities Connected", hint: "Are ECG and water visibly connected to the premises?", field: true, icon: CheckSquare },
+};
+
+const CHECK_ORDER = ["OwnershipDocument", "GPSLocation", "LandCommissionSearch", "PhotosMatch", "BoundaryWall", "UtilitiesConnected"];
+
+// Friendly label for the verification's overall status enum (Unverified →
+// "Pending Action", etc.) so the audit list reads as agent-facing states.
+function friendlyStatus(status: string): { label: string; className: string } {
+    switch (status) {
+        case "AgentAssigned": return { label: "Assigned", className: "bg-blue-100 text-blue-700" };
+        case "SiteVisitScheduled": return { label: "Site Visit Scheduled", className: "bg-purple-100 text-purple-700" };
+        case "DocumentsUploaded": return { label: "In Progress", className: "bg-yellow-100 text-yellow-700" };
+        case "UnderReview": return { label: "Under Review", className: "bg-yellow-100 text-yellow-700" };
+        case "Verified": return { label: "Verified", className: "bg-green-100 text-green-700" };
+        case "Rejected": return { label: "Rejected", className: "bg-red-100 text-red-700" };
+        default: return { label: "Pending Action", className: "bg-charcoal-100 text-charcoal-600" };
+    }
+}
+
+function checkStatusBadge(status: CheckStatus): { label: string; className: string } {
+    switch (status) {
+        case "Passed": return { label: "Passed", className: "bg-green-100 text-green-700" };
+        case "Failed": return { label: "Failed", className: "bg-red-100 text-red-700" };
+        default: return { label: "Pending", className: "bg-yellow-100 text-yellow-700" };
+    }
 }
 
 export function AgentVerification() {
     const [verifications, setVerifications] = useState<AgentVerificationItem[]>([]);
     const [selectedId, setSelectedId] = useState<number | null>(null);
-    const [isOffline, setIsOffline] = useState(false);
-    const [gpsCheckedIn, setGpsCheckedIn] = useState(false);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
-    const [uploading, setUploading] = useState(false);
-    const [evidence, setEvidence] = useState<EvidenceItem[]>([]);
+    const [uploadingCheckId, setUploadingCheckId] = useState<number | null>(null);
+    const [capturingGpsFor, setCapturingGpsFor] = useState<number | null>(null);
+    const [actionError, setActionError] = useState("");
     const [submitting, setSubmitting] = useState(false);
+    const [scheduling, setScheduling] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    // Which check the (single) hidden file input is targeting when opened.
+    const pendingCheckId = useRef<number | null>(null);
 
-    useEffect(() => {
-        agentApi.verifications()
-            .then((data: any) => {
-                const mapped = (data ?? []).map((v: any) => ({
-                    id: v.id,
-                    propertyId: v.propertyId,
-                    propertyTitle: v.propertyTitle || "Unknown Property",
-                    propertyLocation: v.propertyLocation || "Unknown",
-                    status: v.status,
-                    checks: (v.checks ?? []).map((c: any) => ({
-                        id: c.id,
-                        checkType: c.checkType,
-                        status: c.status,
-                        evidenceUrl: c.evidenceUrl,
-                    })),
-                }));
-                setVerifications(mapped);
-                if (mapped.length > 0) setSelectedId(mapped[0].id);
-            })
-            .catch((err: any) => setError(err.message || "Failed to load verifications"))
-            .finally(() => setLoading(false));
+    const loadData = useCallback(async () => {
+        try {
+            const data: any = await agentApi.verifications();
+            const mapped: AgentVerificationItem[] = (data ?? []).map((v: any) => ({
+                id: v.id,
+                propertyId: v.propertyId,
+                propertyTitle: v.propertyTitle || "Unknown Property",
+                propertyLocation: v.propertyLocation || "Unknown",
+                status: v.status,
+                checks: (v.checks ?? []).map((c: any) => ({
+                    id: c.id,
+                    checkType: c.checkType,
+                    status: c.status as CheckStatus,
+                    evidenceUrl: c.evidenceUrl,
+                    notes: c.notes,
+                    gpsLatitude: c.gpsLatitude,
+                    gpsLongitude: c.gpsLongitude,
+                })),
+            }));
+            setVerifications(mapped);
+        } catch (err: any) {
+            setError(err.message || "Failed to load verifications");
+        } finally {
+            setLoading(false);
+        }
     }, []);
 
-    const activeVerification = verifications.find(v => v.id === selectedId);
+    useEffect(() => {
+        loadData().then(() => {
+            // Default-select the first audit once loaded.
+            setVerifications((prev) => {
+                if (prev.length > 0) setSelectedId(prev[0].id);
+                return prev;
+            });
+        });
+    }, [loadData]);
 
-    const getCheckValue = (checks: { checkType: string; status: string }[], key: string) => {
-        const found = checks.find(c => c.checkType === key);
-        return found ? found.status === "Passed" : false;
-    };
+    const activeVerification = verifications.find((v) => v.id === selectedId);
 
-    const handleCheckToggle = async (checkKey: string) => {
-        if (!activeVerification) return;
-        const check = activeVerification.checks.find(c => c.checkType === checkKey);
-        if (!check) return;
-
-        const newStatus = check.status === "Passed" ? "Pending" : "Passed";
-
-        // Optimistic update
-        setVerifications(prev => prev.map(v => {
-            if (v.id !== activeVerification.id) return v;
+    // Patch a single check on the active verification in local state, so the UI
+    // reflects the server's response immediately.
+    const patchCheck = (checkId: number, patch: Partial<VerificationCheck>) => {
+        setVerifications((prev) => prev.map((v) => {
+            if (v.id !== selectedId) return v;
             return {
                 ...v,
-                checks: v.checks.map(c => c.checkType === checkKey ? { ...c, status: newStatus } : c),
+                checks: v.checks.map((c) => (c.id === checkId ? { ...c, ...patch } : c)),
             };
         }));
+    };
 
-        if (!isOffline) {
-            try {
-                await verificationApi.updateCheck(activeVerification.propertyId, check.id, {
-                    status: newStatus,
-                });
-            } catch {
-                // Revert on error
-                setVerifications(prev => prev.map(v => {
-                    if (v.id !== activeVerification.id) return v;
-                    return {
-                        ...v,
-                        checks: v.checks.map(c => c.checkType === checkKey ? { ...c, status: check.status } : c),
-                    };
-                }));
-            }
+    const setVerificationStatus = (status: string) => {
+        setVerifications((prev) => prev.map((v) => (v.id === selectedId ? { ...v, status } : v)));
+    };
+
+    // Real device GPS capture (spec §2.3). Wraps navigator.geolocation in a
+    // Promise with a timeout so a stalled permission prompt doesn't hang the
+    // button forever. On success the coordinates are sent to the GPSLocation
+    // check as gpsLatitude/gpsLongitude strings (decimal columns accept
+    // strings) and the check is marked Passed.
+    const captureGps = (check: VerificationCheck) => {
+        if (!activeVerification) return;
+        if (typeof navigator === "undefined" || !navigator.geolocation) {
+            setActionError("Geolocation is not available on this device.");
+            return;
         }
+        setActionError("");
+        setCapturingGpsFor(check.id);
+        const gpsPromise = new Promise<GeolocationPosition>((resolve, reject) => {
+            navigator.geolocation.getCurrentPosition(resolve, reject, {
+                enableHighAccuracy: true,
+                timeout: 15000,
+                maximumAge: 0,
+            });
+        });
+        const timeout = setTimeout(() => {
+            setCapturingGpsFor(null);
+            setActionError("GPS capture timed out. Check location permission and try again.");
+        }, 16000);
+
+        gpsPromise
+            .then(async (pos) => {
+                clearTimeout(timeout);
+                const lat = pos.coords.latitude.toFixed(8);
+                const lng = pos.coords.longitude.toFixed(8);
+                try {
+                    await verificationApi.agentUpdateCheck(activeVerification.id, check.id, {
+                        gpsLatitude: lat,
+                        gpsLongitude: lng,
+                        status: "Passed",
+                        notes: `On-site GPS check-in: ${lat}, ${lng}`,
+                    });
+                    patchCheck(check.id, {
+                        gpsLatitude: lat,
+                        gpsLongitude: lng,
+                        status: "Passed",
+                        notes: `On-site GPS check-in: ${lat}, ${lng}`,
+                    });
+                } catch (err: any) {
+                    setActionError(err.message || "Failed to record GPS check-in.");
+                } finally {
+                    setCapturingGpsFor(null);
+                }
+            })
+            .catch((geoErr: GeolocationPositionError) => {
+                clearTimeout(timeout);
+                setCapturingGpsFor(null);
+                setActionError(geoErr?.message || "Location permission denied. Enable location to check in.");
+            });
+    };
+
+    const openFilePicker = (checkId: number) => {
+        pendingCheckId.current = checkId;
+        setActionError("");
+        if (fileInputRef.current) fileInputRef.current.value = "";
+        fileInputRef.current?.click();
     };
 
     const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
         const files = event.target.files;
-        if (!files || files.length === 0 || !activeVerification) return;
+        const checkId = pendingCheckId.current;
+        if (!files || files.length === 0 || !activeVerification || checkId == null) return;
+        const file = files[0];
+        const check = activeVerification.checks.find((c) => c.id === checkId);
+        if (!check) return;
 
-        setUploading(true);
-        const newEvidence: EvidenceItem[] = [];
-
-        for (const file of Array.from(files)) {
-            try {
-                const presign = await uploadApi.presign(file.name, "verification-evidence", file.type);
-                const uploadRes = await fetch(presign.url, {
-                    method: "PUT",
-                    body: file,
-                    headers: { "Content-Type": file.type },
-                });
-                if (!uploadRes.ok) throw new Error("Upload failed");
-                newEvidence.push({ url: presign.publicUrl, name: file.name });
-            } catch {
-                // Skip failed uploads
-            }
+        setUploadingCheckId(checkId);
+        try {
+            const { publicUrl, previewUrl } = await uploadApi.uploadFile(file, "verification-evidence");
+            await verificationApi.agentUpdateCheck(activeVerification.id, check.id, {
+                evidenceUrl: publicUrl,
+                notes: `Field evidence: ${file.name}`,
+                status: "Passed",
+            });
+            patchCheck(check.id, {
+                evidenceUrl: publicUrl,
+                status: "Passed",
+                notes: `Field evidence: ${file.name}`,
+            });
+            // Keep previewUrl out of state — it's short-lived and the check now
+            // has a persisted evidenceUrl the proxy can authorize.
+            void previewUrl;
+        } catch (err: any) {
+            setActionError(err.message || "Evidence upload failed.");
+        } finally {
+            setUploadingCheckId(null);
+            pendingCheckId.current = null;
+            if (fileInputRef.current) fileInputRef.current.value = "";
         }
-
-        setEvidence(prev => [...prev, ...newEvidence]);
-        setUploading(false);
-        if (fileInputRef.current) fileInputRef.current.value = "";
     };
 
-    const removeEvidence = (index: number) => {
-        setEvidence(prev => prev.filter((_, i) => i !== index));
+    const markFailed = async (check: VerificationCheck) => {
+        if (!activeVerification) return;
+        const reason = window.prompt(`Mark "${CHECK_META[check.checkType]?.label ?? check.checkType}" as FAILED. Reason (required):`, "");
+        if (!reason || !reason.trim()) return;
+        try {
+            await verificationApi.agentUpdateCheck(activeVerification.id, check.id, {
+                status: "Failed",
+                notes: reason.trim(),
+            });
+            patchCheck(check.id, { status: "Failed", notes: reason.trim() });
+        } catch (err: any) {
+            setActionError(err.message || "Failed to update check.");
+        }
+    };
+
+    const markPassed = async (check: VerificationCheck) => {
+        if (!activeVerification) return;
+        try {
+            await verificationApi.agentUpdateCheck(activeVerification.id, check.id, { status: "Passed" });
+            patchCheck(check.id, { status: "Passed" });
+        } catch (err: any) {
+            setActionError(err.message || "Failed to update check.");
+        }
+    };
+
+    const handleScheduleVisit = async () => {
+        if (!activeVerification) return;
+        setScheduling(true);
+        setActionError("");
+        try {
+            await verificationApi.scheduleSiteVisit(activeVerification.propertyId, {
+                notes: "Site visit scheduled by assigned agent.",
+            });
+            setVerificationStatus("SiteVisitScheduled");
+        } catch (err: any) {
+            setActionError(err.message || "Failed to schedule site visit.");
+        } finally {
+            setScheduling(false);
+        }
     };
 
     const handleSubmit = async () => {
         if (!activeVerification) return;
         setSubmitting(true);
-        setError("");
-
+        setActionError("");
         try {
-            // Attach evidence to the first pending check (or all checks)
-            for (const item of evidence) {
-                const pendingCheck = activeVerification.checks.find(c => c.status === "Pending" || c.status === "Failed");
-                if (pendingCheck) {
-                    await verificationApi.updateCheck(activeVerification.propertyId, pendingCheck.id, {
-                        evidenceUrl: item.url,
-                        notes: `Field evidence: ${item.name}`,
-                    });
-                }
-            }
-
-            if (isOffline) {
-                alert("Report saved offline. It will sync automatically when connectivity is restored.");
-            } else {
-                alert("Verification report submitted to Admin queue successfully!");
-                setVerifications(prev => prev.map(v => v.id === selectedId ? { ...v, status: "Under Review" } : v));
-                setEvidence([]);
-            }
+            // Real submit (spec gap #10): POSTs to the agent submit endpoint,
+            // which rejects if any check is still Pending, advances the
+            // verification to UnderReview, and notifies the admins. The local
+            // checks are already persisted per-check above; this is the final
+            // hand-off. Re-read the server state so the recomputed status
+            // (UnderReview) is reflected in the audit list.
+            await verificationApi.submitReport(activeVerification.id);
+            await loadData();
+            setActionError("");
+            window.alert("Verification report submitted. An admin will review the evidence and issue the TEPS reference.");
         } catch (err: any) {
-            setError(err.message || "Submit failed");
+            setActionError(err.message || "Submit failed.");
         } finally {
             setSubmitting(false);
         }
@@ -189,46 +325,35 @@ export function AgentVerification() {
                     <h2 className="text-2xl font-heading font-bold text-charcoal-950">Field Site Verifications</h2>
                     <p className="text-charcoal-500 font-medium">Verify property details and capture evidence on-site.</p>
                 </div>
-                {/* Offline Mode Toggle */}
-                <div className="flex items-center gap-2">
-                    <span className="text-sm font-bold text-charcoal-600">Simulate Connection:</span>
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setIsOffline(!isOffline)}
-                        className={`font-bold ${isOffline ? "border-red-300 text-red-600 hover:bg-red-50" : "bg-green-600 hover:bg-green-700 text-white"}`}
-                    >
-                        {isOffline ? <><WifiOff className="h-4 w-4 mr-2" /> Offline Mode</> : <><CheckCircle className="h-4 w-4 mr-2" /> Online</>}
-                    </Button>
-                </div>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-
-                {/* Pending Verification List */}
+                {/* Assigned Audits */}
                 <div className="lg:col-span-1 space-y-4">
                     <h3 className="font-heading font-bold text-lg text-charcoal-900 border-b border-charcoal-200 pb-2">Assigned Audits</h3>
                     <div className="space-y-3">
                         {verifications.length === 0 ? (
                             <div className="p-4 text-center text-charcoal-500 font-medium">No assigned audits.</div>
-                        ) : verifications.map((item) => (
-                            <div
-                                key={item.id}
-                                onClick={() => {
-                                    setSelectedId(item.id);
-                                    setGpsCheckedIn(false);
-                                }}
-                                className={`p-4 rounded-sm border cursor-pointer transition-all ${selectedId === item.id ? 'bg-brand-50 border-brand-300 ring-1 ring-brand-300' : 'bg-white border-charcoal-200 hover:border-brand-200'}`}
-                            >
-                                <div className="flex justify-between items-start mb-2">
-                                    <Badge className={`${item.status === 'Pending Action' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'} border-none shadow-none font-bold text-xs`}>{item.status}</Badge>
+                        ) : verifications.map((item) => {
+                            const st = friendlyStatus(item.status);
+                            const passed = item.checks.filter((c) => c.status === "Passed").length;
+                            return (
+                                <div
+                                    key={item.id}
+                                    onClick={() => setSelectedId(item.id)}
+                                    className={`p-4 rounded-sm border cursor-pointer transition-all ${selectedId === item.id ? "bg-brand-50 border-brand-300 ring-1 ring-brand-300" : "bg-white border-charcoal-200 hover:border-brand-200"}`}
+                                >
+                                    <div className="flex justify-between items-start mb-2">
+                                        <Badge className={`${st.className} border-none shadow-none font-bold text-xs`}>{st.label}</Badge>
+                                        <span className="text-[10px] font-bold text-charcoal-500 uppercase tracking-wide">{passed}/{item.checks.length} done</span>
+                                    </div>
+                                    <h4 className="font-bold text-charcoal-900 text-sm leading-snug">{item.propertyTitle}</h4>
+                                    <div className="flex items-center gap-1 mt-3 text-xs text-charcoal-500 font-bold uppercase tracking-wide">
+                                        <MapPin className="h-3 w-3" /> {item.propertyLocation}
+                                    </div>
                                 </div>
-                                <h4 className="font-bold text-charcoal-900 text-sm leading-snug">{item.propertyTitle}</h4>
-                                <div className="flex items-center gap-1 mt-3 text-xs text-charcoal-500 font-bold uppercase tracking-wide">
-                                    <MapPin className="h-3 w-3" /> {item.propertyLocation}
-                                </div>
-                            </div>
-                        ))}
+                            );
+                        })}
                     </div>
                 </div>
 
@@ -236,163 +361,153 @@ export function AgentVerification() {
                 <div className="lg:col-span-2">
                     {activeVerification && (
                         <div className="space-y-6">
-
-                            {/* GPS Audit Header */}
+                            {/* Header + schedule site visit */}
                             <Card className="border-charcoal-200 shadow-sm rounded-sm">
                                 <CardContent className="p-6">
-                                    <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+                                    <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
                                         <div>
                                             <h3 className="text-xl font-bold text-charcoal-950 mb-1">{activeVerification.propertyTitle}</h3>
                                             <p className="text-sm font-medium text-charcoal-500">Location: <span className="text-charcoal-900 font-mono font-bold">{activeVerification.propertyLocation}</span></p>
+                                            <div className="mt-2">
+                                                <Badge className={`${friendlyStatus(activeVerification.status).className} border-none shadow-none font-bold text-xs`}>
+                                                    {friendlyStatus(activeVerification.status).label}
+                                                </Badge>
+                                            </div>
                                         </div>
-                                        <Button
-                                            onClick={() => setGpsCheckedIn(true)}
-                                            size="lg"
-                                            disabled={gpsCheckedIn}
-                                            className={`${gpsCheckedIn ? "bg-green-600 hover:bg-green-700" : "bg-blue-600 hover:bg-blue-700"} text-white font-bold rounded-sm shadow-sm transition-all`}
-                                        >
-                                            {gpsCheckedIn ? <><CheckCircle className="h-5 w-5 mr-2" /> Checked In On-Site</> : <><MapPin className="h-5 w-5 mr-2 -ml-1" /> GPS Check-In</>}
-                                        </Button>
+                                        {activeVerification.status !== "SiteVisitScheduled" && (
+                                            <Button
+                                                onClick={handleScheduleVisit}
+                                                disabled={scheduling}
+                                                className="bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-sm shadow-sm"
+                                            >
+                                                {scheduling ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <MapPin className="h-4 w-4 mr-2 -ml-1" />}
+                                                Schedule Site Visit
+                                            </Button>
+                                        )}
                                     </div>
-                                    {!gpsCheckedIn && <p className="text-xs text-red-500 font-bold mt-4 flex items-center gap-1"><AlertCircle className="h-3 w-3" /> You must be within 50 meters of the property to check in.</p>}
                                 </CardContent>
                             </Card>
 
-                            {/* Checklist and Media - Only allow interaction if Checked In (simulated) */}
-                            <div className={`space-y-6 transition-opacity duration-300 ${!gpsCheckedIn ? 'opacity-50 pointer-events-none' : ''}`}>
-
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                    {/* Physical Checklist */}
-                                    <Card className="border-charcoal-200 shadow-sm rounded-sm h-full">
-                                        <CardHeader className="bg-charcoal-50 border-b border-charcoal-100 pb-3">
-                                            <CardTitle className="text-base font-bold text-charcoal-900 flex items-center gap-2">
-                                                <CheckSquare className="h-4 w-4 text-brand-600" /> Physical Audit Checklist
-                                            </CardTitle>
-                                        </CardHeader>
-                                        <CardContent className="p-4 space-y-4">
-                                            <label className="flex items-start gap-3 cursor-pointer p-2 rounded-sm hover:bg-charcoal-50 transition-colors">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={getCheckValue(activeVerification.checks, 'DocumentAuthenticity')}
-                                                    onChange={() => handleCheckToggle('DocumentAuthenticity')}
-                                                    className="mt-1 w-4 h-4 text-brand-600 border-charcoal-300 rounded focus:ring-brand-500"
-                                                />
-                                                <div>
-                                                    <span className="font-bold text-charcoal-900 text-sm">Photos Match Reality</span>
-                                                    <p className="text-xs text-charcoal-500 mt-0.5">Does the current state match owner uploaded photos?</p>
-                                                </div>
-                                            </label>
-                                            <label className="flex items-start gap-3 cursor-pointer p-2 rounded-sm hover:bg-charcoal-50 transition-colors">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={getCheckValue(activeVerification.checks, 'GPSBoundary')}
-                                                    onChange={() => handleCheckToggle('GPSBoundary')}
-                                                    className="mt-1 w-4 h-4 text-brand-600 border-charcoal-300 rounded focus:ring-brand-500"
-                                                />
-                                                <div>
-                                                    <span className="font-bold text-charcoal-900 text-sm">Clear Boundary Wall</span>
-                                                    <p className="text-xs text-charcoal-500 mt-0.5">Is the property fully walled or fenced and demarcated?</p>
-                                                </div>
-                                            </label>
-                                            <label className="flex items-start gap-3 cursor-pointer p-2 rounded-sm hover:bg-charcoal-50 transition-colors">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={getCheckValue(activeVerification.checks, 'UtilitiesConnected')}
-                                                    onChange={() => handleCheckToggle('UtilitiesConnected')}
-                                                    className="mt-1 w-4 h-4 text-brand-600 border-charcoal-300 rounded focus:ring-brand-500"
-                                                />
-                                                <div>
-                                                    <span className="font-bold text-charcoal-900 text-sm">Utilities Connected</span>
-                                                    <p className="text-xs text-charcoal-500 mt-0.5">Is ECG and Water visibly connected to the premises?</p>
-                                                </div>
-                                            </label>
-                                        </CardContent>
-                                    </Card>
-
-                                    {/* Media Capture */}
-                                    <Card className="border-charcoal-200 shadow-sm rounded-sm h-full flex flex-col">
-                                        <CardHeader className="bg-charcoal-50 border-b border-charcoal-100 pb-3">
-                                            <CardTitle className="text-base font-bold text-charcoal-900 flex items-center gap-2">
-                                                <Camera className="h-4 w-4 text-brand-600" /> Evidence Capture
-                                            </CardTitle>
-                                        </CardHeader>
-                                        <CardContent className="p-4 flex-1 flex flex-col gap-3">
-                                            <input
-                                                type="file"
-                                                ref={fileInputRef}
-                                                className="hidden"
-                                                accept="image/*,video/*"
-                                                multiple
-                                                onChange={handleFileSelect}
-                                            />
-                                            <div
-                                                onClick={() => fileInputRef.current?.click()}
-                                                className="border-2 border-dashed border-charcoal-200 bg-charcoal-50 rounded-sm p-6 text-center hover:bg-brand-50 hover:border-brand-300 transition-colors cursor-pointer group"
-                                            >
-                                                <div className="flex justify-center gap-4 mb-3">
-                                                    <div className="p-3 bg-white shadow-sm rounded-full text-brand-600 group-hover:scale-110 transition-transform">
-                                                        <Camera className="h-6 w-6" />
-                                                    </div>
-                                                    <div className="p-3 bg-white shadow-sm rounded-full text-brand-600 group-hover:scale-110 transition-transform delay-75">
-                                                        <Video className="h-6 w-6" />
-                                                    </div>
-                                                </div>
-                                                <p className="font-bold text-charcoal-900 text-sm">{uploading ? "Uploading..." : "Capture Photo/Video"}</p>
-                                                <p className="text-xs text-charcoal-500 mt-1">Click to upload field evidence. Supports images and videos.</p>
-                                                {uploading && <Loader2 className="h-5 w-5 animate-spin text-brand-600 mx-auto mt-2" />}
-                                            </div>
-
-                                            {/* Evidence Preview */}
-                                            {evidence.length > 0 && (
-                                                <div className="space-y-2">
-                                                    <p className="text-xs font-bold text-charcoal-700 uppercase tracking-wider">Uploaded Evidence</p>
-                                                    <div className="flex gap-2 overflow-x-auto pb-2 custom-scrollbar">
-                                                        {evidence.map((item, idx) => (
-                                                            <div key={idx} className="relative shrink-0 h-20 w-20 rounded-sm overflow-hidden border border-charcoal-200 group">
-                                                                {item.name.match(/\.(mp4|mov|avi)$/i) ? (
-                                                                    <div className="h-full w-full bg-charcoal-800 flex items-center justify-center">
-                                                                        <Video className="h-6 w-6 text-white" />
-                                                                    </div>
-                                                                ) : (
-                                                                    <img src={item.url} alt={item.name} className="object-cover w-full h-full" />
-                                                                )}
-                                                                <button
-                                                                    onClick={() => removeEvidence(idx)}
-                                                                    className="absolute top-0.5 right-0.5 h-5 w-5 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                                                                >
-                                                                    <X className="h-3 w-3" />
-                                                                </button>
+                            {/* Per-check audit cards */}
+                            <div className="space-y-3">
+                                <input
+                                    type="file"
+                                    ref={fileInputRef}
+                                    className="hidden"
+                                    accept="image/*,video/*"
+                                    onChange={handleFileSelect}
+                                />
+                                {CHECK_ORDER.map((checkType) => {
+                                    const check = activeVerification.checks.find((c) => c.checkType === checkType);
+                                    if (!check) return null;
+                                    const meta = CHECK_META[checkType] ?? { label: checkType, hint: "", field: true, icon: ShieldCheck as unknown as typeof MapPin };
+                                    const Icon = meta.icon;
+                                    const badge = checkStatusBadge(check.status);
+                                    const isUploading = uploadingCheckId === check.id;
+                                    const isCapturingGps = capturingGpsFor === check.id;
+                                    return (
+                                        <Card key={check.id} className="border-charcoal-200 shadow-sm rounded-sm">
+                                            <CardContent className="p-4">
+                                                <div className="flex items-start justify-between gap-3">
+                                                    <div className="flex items-start gap-3">
+                                                        <div className="p-2 bg-brand-50 rounded-sm text-brand-600 shrink-0">
+                                                            <Icon className="h-5 w-5" />
+                                                        </div>
+                                                        <div>
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="font-bold text-charcoal-900 text-sm">{meta.label}</span>
+                                                                <Badge className={`${badge.className} border-none shadow-none font-bold text-[10px] uppercase tracking-wide`}>{badge.label}</Badge>
                                                             </div>
-                                                        ))}
+                                                            <p className="text-xs text-charcoal-500 mt-0.5">{meta.hint}</p>
+                                                            {check.evidenceUrl && (
+                                                                <a href={fileProxyUrl(check.evidenceUrl)} target="_blank" rel="noreferrer" className="text-xs text-brand-600 font-bold mt-1 inline-flex items-center gap-1 hover:underline">
+                                                                    <ImageIcon className="h-3 w-3" /> View evidence
+                                                                </a>
+                                                            )}
+                                                            {check.gpsLatitude && check.gpsLongitude && (
+                                                                <p className="text-xs text-charcoal-600 font-mono mt-1">
+                                                                    GPS: {check.gpsLatitude}, {check.gpsLongitude}
+                                                                </p>
+                                                            )}
+                                                            {check.notes && !check.gpsLatitude && (
+                                                                <p className="text-xs text-charcoal-500 italic mt-1">{check.notes}</p>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-2 shrink-0">
+                                                        {checkType === "GPSLocation" ? (
+                                                            <Button
+                                                                size="sm"
+                                                                onClick={() => captureGps(check)}
+                                                                disabled={isCapturingGps || check.status === "Passed"}
+                                                                className="bg-blue-600 hover:bg-blue-700 text-white font-bold"
+                                                            >
+                                                                {isCapturingGps ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <MapPinned className="h-4 w-4 mr-1" />}
+                                                                {check.status === "Passed" ? "Checked In" : "GPS Check-In"}
+                                                            </Button>
+                                                        ) : (
+                                                            <Button
+                                                                size="sm"
+                                                                variant="outline"
+                                                                onClick={() => openFilePicker(check.id)}
+                                                                disabled={isUploading}
+                                                                className="font-bold border-charcoal-200"
+                                                            >
+                                                                {isUploading ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <UploadCloud className="h-4 w-4 mr-1" />}
+                                                                {check.evidenceUrl ? "Replace" : "Upload"}
+                                                            </Button>
+                                                        )}
+                                                        {check.status !== "Passed" && (
+                                                            <Button
+                                                                size="sm"
+                                                                variant="ghost"
+                                                                onClick={() => markPassed(check)}
+                                                                className="text-green-600 hover:bg-green-50 font-bold"
+                                                                title="Mark passed"
+                                                            >
+                                                                <CheckCircle2 className="h-4 w-4" />
+                                                            </Button>
+                                                        )}
+                                                        {check.status !== "Failed" && (
+                                                            <Button
+                                                                size="sm"
+                                                                variant="ghost"
+                                                                onClick={() => markFailed(check)}
+                                                                className="text-red-600 hover:bg-red-50 font-bold"
+                                                                title="Mark failed"
+                                                            >
+                                                                <XCircle className="h-4 w-4" />
+                                                            </Button>
+                                                        )}
                                                     </div>
                                                 </div>
-                                            )}
-                                        </CardContent>
-                                    </Card>
-                                </div>
+                                            </CardContent>
+                                        </Card>
+                                    );
+                                })}
+                            </div>
 
-                                <div className="flex justify-end pt-4">
-                                    <Button
-                                        size="lg"
-                                        onClick={handleSubmit}
-                                        disabled={submitting}
-                                        className="bg-charcoal-950 hover:bg-charcoal-900 text-white font-bold px-8 shadow-sm"
-                                    >
-                                        {submitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />}
-                                        {submitting ? "Submitting..." : "Submit Verification Report"}
-                                    </Button>
+                            {actionError && (
+                                <div className="bg-red-50 border border-red-200 rounded-sm p-3 text-sm font-medium text-red-700 flex items-center gap-2">
+                                    <XCircle className="h-4 w-4 shrink-0" /> {actionError}
                                 </div>
+                            )}
 
+                            <div className="flex justify-end pt-2">
+                                <Button
+                                    size="lg"
+                                    onClick={handleSubmit}
+                                    disabled={submitting}
+                                    className="bg-charcoal-950 hover:bg-charcoal-900 text-white font-bold px-8 shadow-sm"
+                                >
+                                    {submitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />}
+                                    {submitting ? "Submitting..." : "Submit Verification Report"}
+                                </Button>
                             </div>
                         </div>
                     )}
                 </div>
-
             </div>
         </div>
     );
-}
-
-function AlertCircle(props: any) {
-    return <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
 }

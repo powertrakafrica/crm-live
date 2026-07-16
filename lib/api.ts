@@ -133,6 +133,8 @@ export const propertiesApi = {
     delete: (id: number) => fetchJson<{ message: string }>(`/properties/${id}`, { method: "DELETE" }),
     addImage: (id: number, body: { url: string; altText?: string; sortOrder?: number; isPrimary?: boolean }) =>
         fetchJson<unknown>(`/properties/${id}/images`, { method: "POST", body: JSON.stringify(body) }),
+    deleteImage: (id: number, imageId: number) =>
+        fetchJson<{ message: string }>(`/properties/${id}/images/${imageId}`, { method: "DELETE" }),
     addDocument: (id: number, body: { documentType: string; url: string }) =>
         fetchJson<unknown>(`/properties/${id}/documents`, { method: "POST", body: JSON.stringify(body) }),
 };
@@ -182,6 +184,10 @@ export const agentApi = {
     leads: () => fetchJson<unknown[]>("/agent/leads"),
     earnings: () => fetchJson<unknown>("/agent/earnings"),
     listings: () => fetchJson<unknown[]>("/agent/listings"),
+    // Listings the agent legally owns (created via POST /properties, which
+    // forces ownerId := the caller) — the set the agent may CRUD through the
+    // property routes. Distinct from `listings` (bookings/commissions-managed).
+    myListings: () => fetchJson<unknown[]>("/agent/my-listings"),
     verifications: () => fetchJson<unknown[]>("/agent/verifications"),
     tickets: () => fetchJson<unknown[]>("/agent/tickets"),
 };
@@ -190,8 +196,24 @@ export const agentApi = {
 
 export const clientApi = {
     savedProperties: () => fetchJson<unknown[]>("/client/saved-properties"),
+    saveProperty: (propertyId: number) =>
+        fetchJson<unknown>("/client/saved-properties", { method: "POST", body: JSON.stringify({ propertyId }) }),
+    removeSavedProperty: (propertyId: number) =>
+        fetchJson<{ message: string }>(`/client/saved-properties/${propertyId}`, { method: "DELETE" }),
+    // Persist the private "Vault" note on a saved property (migration 0022).
+    updateNote: (propertyId: number, note: string | null) =>
+        fetchJson<unknown>(`/client/saved-properties/${propertyId}`, { method: "PATCH", body: JSON.stringify({ note }) }),
     serviceRequests: () => fetchJson<unknown>("/client/service-requests"),
     payments: () => fetchJson<unknown[]>("/client/payments"),
+};
+
+// ─── Saved Searches (Client) ────────────────────────
+
+export const savedSearchApi = {
+    list: () => fetchJson<unknown[]>("/client/saved-searches"),
+    create: (body: { name: string; queryJson: Record<string, string>; alertEnabled?: boolean }) =>
+        fetchJson<unknown>("/client/saved-searches", { method: "POST", body: JSON.stringify(body) }),
+    remove: (id: number) => fetchJson<{ message: string }>(`/client/saved-searches/${id}`, { method: "DELETE" }),
 };
 
 // ─── Upload ──────────────────────────────────────────
@@ -217,10 +239,64 @@ export const uploadApi = {
     },
     presign: (filename: string, folder: string, contentType?: string) => {
         const qs = new URLSearchParams({ filename, folder });
-        if (contentType) qs.append("contentType", contentType);
-        return fetchJson<{ url: string; publicUrl: string; key: string }>(`/upload/presign?${qs.toString()}`);
+        // Always send a concrete contentType so the backend signs a known
+        // value (never an empty/absent one). Pair this with uploadFile() so
+        // the PUT header matches the signed value exactly.
+        qs.append("contentType", contentType || "application/octet-stream");
+        return fetchJson<{ key: string; previewUrl: string; publicUrl: string; url: string }>(`/upload/presign?${qs.toString()}`);
+    },
+    // Single source of truth for direct-to-Spaces uploads: normalize the
+    // Content-Type once and use the same string for both the presigned
+    // signature (server-side) and the PUT request header (browser-side).
+    // Browsers return "" for File.type when they can't infer a MIME; if presign
+    // and PUT disagreed on that value the upload 403s with SignatureDoesNotMatch.
+    // Prefer this over calling presign() + fetch() by hand.
+    uploadFile: async (
+        file: File,
+        folder: string,
+    ): Promise<{ key: string; previewUrl: string; publicUrl: string; url: string }> => {
+        const contentType = file.type || "application/octet-stream";
+        const presign = await uploadApi.presign(file.name, folder, contentType);
+        const res = await fetch(presign.url, {
+            method: "PUT",
+            body: file,
+            headers: { "Content-Type": contentType },
+        });
+        if (!res.ok) {
+            throw Object.assign(new Error(`Upload failed: ${res.status} ${res.statusText}`), { status: res.status });
+        }
+        // Only public-category folders (avatars, property images) get flipped
+        // public-read. Sensitive docs stay private and are later read through
+        // the GET /api/files/* proxy — so we deliberately do NOT finalize them,
+        // and the backend's /finalize folder-allowlist would reject them anyway.
+        if (folder === "avatars" || folder === "images") {
+            await fetchJson("/upload/finalize", {
+                method: "POST",
+                body: JSON.stringify({ key: presign.key }),
+            });
+        }
+        return presign;
     },
 };
+
+// Rewrite a Spaces public URL into the authenticated backend proxy URL. Sensitive
+// docs (Ghana cards, partnership agreements, verification evidence) are private on
+// the Space; the proxy authorizes owner/assigned-agent/admin and streams the bytes.
+// The Spaces URL is `https://<region>.digitaloceanspaces.com/<bucket>/<key...>`,
+// so the key is everything after the bucket segment of the pathname.
+export function fileProxyUrl(spacesUrl: string): string {
+    if (!spacesUrl) return spacesUrl;
+    try {
+        const u = new URL(spacesUrl);
+        const segments = u.pathname.split("/").filter(Boolean);
+        if (segments.length < 2) return spacesUrl;
+        segments.shift(); // drop the bucket segment
+        const key = segments.join("/");
+        return `${API_BASE}/files/${encodeURI(key)}`;
+    } catch {
+        return spacesUrl; // not a valid URL — return as-is
+    }
+}
 
 // ─── Payments ────────────────────────────────────────
 
@@ -268,11 +344,20 @@ export const profileApi = {
     uploadAvatar: (body: Record<string, unknown>) => fetchJson<unknown>("/profile/avatar", { method: "POST", body: JSON.stringify(body) }),
     uploadGhanaCard: (body: Record<string, unknown>) => fetchJson<unknown>("/profile/ghana-card", { method: "POST", body: JSON.stringify(body) }),
     uploadPartnershipAgreement: (body: Record<string, unknown>) => fetchJson<unknown>("/profile/partnership-agreement", { method: "POST", body: JSON.stringify(body) }),
+    // Supporting agent docs (police clearance, proof of address, certificate,
+    // other) — backed by the generalized agent_documents table. GhanaCard and
+    // PartnershipAgreement have their own dedicated endpoints above.
+    uploadAgentDocument: (body: Record<string, unknown>) => fetchJson<unknown>("/profile/agent-documents", { method: "POST", body: JSON.stringify(body) }),
     agentProfile: (agentId?: number) => {
         const path = agentId ? `/profile/agent/${agentId}` : "/profile/agent";
         return fetchJson<unknown>(path);
     },
     updateAgentProfile: (body: Record<string, unknown>) => fetchJson<unknown>("/profile/agent", { method: "PUT", body: JSON.stringify(body) }),
+    // Become-an-agent application: a logged-in client/owner applies; admin
+    // approval promotes them. myApplication returns null when none submitted.
+    submitAgentApplication: (body: Record<string, unknown>) =>
+        fetchJson<unknown>("/profile/agent-application", { method: "POST", body: JSON.stringify(body) }),
+    myAgentApplication: () => fetchJson<unknown>("/profile/agent-application"),
 };
 
 // ─── Geo ─────────────────────────────────────────────
@@ -298,6 +383,24 @@ export const verificationApi = {
         fetchJson<unknown>(`/properties/${propertyId}/verification/checks/${checkId}`, { method: "PATCH", body: JSON.stringify(body) }),
     submitEvidence: (verificationId: number, checkId: number, body: { evidenceUrl: string; notes?: string }) =>
         fetchJson<unknown>(`/owner/verifications/${verificationId}/checks/${checkId}/evidence`, { method: "POST", body: JSON.stringify(body) }),
+    // Assigned-agent site-visit tick: mark a check Passed/Failed with evidence
+    // + notes. Authorized server-side to the assigned agent (admin bypasses).
+    // gpsLatitude/gpsLongitude are captured by the agent's device for the
+    // GPSLocation check (spec §2.3) and persisted on the check row.
+    agentUpdateCheck: (verificationId: number, checkId: number, body: { evidenceUrl?: string; notes?: string; status: "Failed" | "Passed" | "Pending"; gpsLatitude?: string; gpsLongitude?: string }) =>
+        fetchJson<unknown>(`/agent/verifications/${verificationId}/checks/${checkId}`, { method: "PATCH", body: JSON.stringify(body) }),
+    // Schedule a field site visit — flips verification status to
+    // SiteVisitScheduled. Admin or the agent assigned to the verification.
+    scheduleSiteVisit: (propertyId: number, body: { notes?: string }) =>
+        fetchJson<unknown>(`/properties/${propertyId}/verification/site-visit`, { method: "POST", body: JSON.stringify(body) }),
+    // Agent's final "I'm done — hand to admin" action (spec gap #10). Server
+    // rejects if any check is still Pending, then advances the verification to
+    // UnderReview and notifies the admins. Authorized to the assigned agent.
+    submitReport: (verificationId: number) =>
+        fetchJson<unknown>(`/agent/verifications/${verificationId}/submit`, { method: "POST" }),
+    // Attach/replace the verification certificate URL. Admin-only.
+    setCertificate: (propertyId: number, certificateUrl: string) =>
+        fetchJson<unknown>(`/properties/${propertyId}/verification/certificate`, { method: "POST", body: JSON.stringify({ certificateUrl }) }),
 };
 
 // ─── Messages ────────────────────────────────────────

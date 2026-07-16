@@ -8,13 +8,13 @@ import {
     ChevronLeft,
     MapPin,
     Languages,
-    Briefcase,
     Smartphone,
     ShieldCheck,
     Loader2,
+    UserCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { api, profileApi } from "@/lib/api";
+import { profileApi } from "@/lib/api";
 import { CoveragePicker } from "@/app/(portals)/agent/components/CoveragePicker";
 import { itemsToCoverage, type CoverageItem } from "@/lib/coverage";
 
@@ -27,12 +27,39 @@ const ALL_SPECIALTIES = [
     "Rent-to-Own Deals",
 ];
 const MOMO_NETWORKS = ["MTN", "Vodafone", "AirtelTigo"];
+const GENDER_OPTIONS = ["Male", "Female", "Other"] as const;
+
+// Shape of the identity slice returned by GET /profile/me (getUserProfile).
+// Only the fields this wizard reads/prefills are typed here.
+interface MeProfile {
+    dateOfBirth?: string | null;
+    gender?: string | null;
+    nationality?: string | null;
+    residentialAddress?: string | null;
+    digitalAddress?: string | null;
+    emergencyContactName?: string | null;
+    emergencyContactRelationship?: string | null;
+    emergencyContactPhone?: string | null;
+}
 
 export default function OnboardingPage() {
     const router = useRouter();
     const [step, setStep] = useState(1);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState("");
+
+    // Identity & contact — collected up front so the system actually has the
+    // agent's DOB / address / emergency contact on file (the become-agent form
+    // captures these too, but onboarding is the gate that blocks completion
+    // until they're present, and lets a returning agent re-confirm them).
+    const [dateOfBirth, setDateOfBirth] = useState("");
+    const [gender, setGender] = useState("");
+    const [nationality, setNationality] = useState("Ghana");
+    const [residentialAddress, setResidentialAddress] = useState("");
+    const [digitalAddress, setDigitalAddress] = useState("");
+    const [emergencyContactName, setEmergencyContactName] = useState("");
+    const [emergencyContactRelationship, setEmergencyContactRelationship] = useState("");
+    const [emergencyContactPhone, setEmergencyContactPhone] = useState("");
 
     const [coverageItems, setCoverageItems] = useState<CoverageItem[]>([]);
     const [selectedLanguages, setSelectedLanguages] = useState<string[]>([]);
@@ -43,8 +70,24 @@ export default function OnboardingPage() {
     useEffect(() => {
         // Defense-in-depth: middleware already gates this route on the access
         // cookie. Confirm server-side that the session is live (the cookie may
-        // have expired); redirect to login if /me can't be satisfied.
-        void api.me().catch(() => router.push("/auth/login"));
+        // have expired) AND prefill any identity already on the user's profile
+        // so a returning agent doesn't retype it. profileApi.me() -> getUserProfile
+        // returns the identity fields; on 401 we bail to login.
+        void profileApi
+            .me()
+            .then((u) => {
+                const me = u as MeProfile;
+                if (me.dateOfBirth) setDateOfBirth(me.dateOfBirth.slice(0, 10));
+                if (me.gender) setGender(me.gender);
+                if (me.nationality) setNationality(me.nationality);
+                if (me.residentialAddress) setResidentialAddress(me.residentialAddress);
+                if (me.digitalAddress) setDigitalAddress(me.digitalAddress);
+                if (me.emergencyContactName) setEmergencyContactName(me.emergencyContactName);
+                if (me.emergencyContactRelationship)
+                    setEmergencyContactRelationship(me.emergencyContactRelationship);
+                if (me.emergencyContactPhone) setEmergencyContactPhone(me.emergencyContactPhone);
+            })
+            .catch(() => router.push("/auth/login"));
     }, [router]);
 
     const toggleLanguage = (l: string) => {
@@ -59,11 +102,51 @@ export default function OnboardingPage() {
         );
     };
 
+    const identityComplete = () =>
+        !!dateOfBirth &&
+        !!gender &&
+        !!nationality.trim() &&
+        !!residentialAddress.trim() &&
+        !!digitalAddress.trim() &&
+        !!emergencyContactName.trim() &&
+        !!emergencyContactRelationship.trim() &&
+        !!emergencyContactPhone.trim();
+
     const canProceed = () => {
-        if (step === 1) return coverageItems.length > 0;
-        if (step === 2) return selectedLanguages.length > 0 && selectedSpecialties.length > 0;
-        if (step === 3) return momoNumber.length >= 10 && momoNetwork !== "";
+        if (step === 1) return identityComplete();
+        if (step === 2) return coverageItems.length > 0;
+        if (step === 3) return selectedLanguages.length > 0 && selectedSpecialties.length > 0;
+        if (step === 4) return momoNumber.length >= 10 && momoNetwork !== "";
         return true;
+    };
+
+    // Persist identity to the user profile when leaving step 1, so the data
+    // lands even if the agent abandons the wizard before finishing. Steps 2–3
+    // advance locally; step 4 calls handleComplete (agent profile + finish).
+    const handleNext = async () => {
+        if (step === 1) {
+            setSaving(true);
+            setError("");
+            try {
+                await profileApi.update({
+                    dateOfBirth,
+                    gender,
+                    nationality,
+                    residentialAddress,
+                    digitalAddress,
+                    emergencyContactName,
+                    emergencyContactRelationship,
+                    emergencyContactPhone,
+                });
+                setStep((s) => s + 1);
+            } catch (err: any) {
+                setError(err.message || "Failed to save identity details");
+            } finally {
+                setSaving(false);
+            }
+            return;
+        }
+        setStep((s) => s + 1);
     };
 
     const handleComplete = async () => {
@@ -78,7 +161,7 @@ export default function OnboardingPage() {
                 momoNetwork,
                 isOnboardingComplete: true,
             });
-            setStep(4);
+            setStep(5);
         } catch (err: any) {
             setError(err.message || "Failed to save profile");
         } finally {
@@ -86,7 +169,10 @@ export default function OnboardingPage() {
         }
     };
 
-    const totalSteps = 4;
+    const totalSteps = 5;
+
+    const inputCls =
+        "block w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-400 focus:bg-white focus:ring-2 focus:ring-brand-100 transition-all";
 
     return (
         <div className="min-h-screen bg-slate-50 flex flex-col">
@@ -132,6 +218,134 @@ export default function OnboardingPage() {
                         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 sm:p-8 animate-fade-in">
                             <div className="flex items-center gap-3 mb-6">
                                 <div className="h-10 w-10 rounded-xl bg-brand-100 flex items-center justify-center">
+                                    <UserCheck className="h-5 w-5 text-brand-600" />
+                                </div>
+                                <div>
+                                    <h2 className="text-lg font-bold text-slate-900">Identity &amp; Contact</h2>
+                                    <p className="text-sm text-slate-500">Verify your personal details before going live</p>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                                <div>
+                                    <label htmlFor="dob" className="block text-sm font-semibold text-slate-900 mb-1.5">
+                                        Date of birth *
+                                    </label>
+                                    <input
+                                        id="dob"
+                                        type="date"
+                                        value={dateOfBirth}
+                                        onChange={(e) => setDateOfBirth(e.target.value)}
+                                        className={inputCls}
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-semibold text-slate-900 mb-1.5">Gender *</label>
+                                    <div className="grid grid-cols-3 gap-2">
+                                        {GENDER_OPTIONS.map((g) => {
+                                            const selected = gender === g;
+                                            return (
+                                                <button
+                                                    key={g}
+                                                    type="button"
+                                                    onClick={() => setGender(g)}
+                                                    className={`rounded-xl border-2 px-3 py-3 text-sm font-semibold transition-all ${
+                                                        selected
+                                                            ? "border-brand-500 bg-brand-50 text-brand-900"
+                                                            : "border-slate-200 hover:border-slate-300 bg-white text-slate-700"
+                                                    }`}
+                                                >
+                                                    {g}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label htmlFor="nationality" className="block text-sm font-semibold text-slate-900 mb-1.5">
+                                        Nationality *
+                                    </label>
+                                    <input
+                                        id="nationality"
+                                        value={nationality}
+                                        onChange={(e) => setNationality(e.target.value)}
+                                        className={inputCls}
+                                    />
+                                </div>
+
+                                <div>
+                                    <label htmlFor="digital" className="block text-sm font-semibold text-slate-900 mb-1.5">
+                                        Digital address (GhanaPost) *
+                                    </label>
+                                    <input
+                                        id="digital"
+                                        value={digitalAddress}
+                                        onChange={(e) => setDigitalAddress(e.target.value)}
+                                        placeholder="e.g. GA-144-1234"
+                                        className={inputCls}
+                                    />
+                                </div>
+
+                                <div className="sm:col-span-2">
+                                    <label htmlFor="residential" className="block text-sm font-semibold text-slate-900 mb-1.5">
+                                        Residential address *
+                                    </label>
+                                    <input
+                                        id="residential"
+                                        value={residentialAddress}
+                                        onChange={(e) => setResidentialAddress(e.target.value)}
+                                        className={inputCls}
+                                    />
+                                </div>
+
+                                <div>
+                                    <label htmlFor="emName" className="block text-sm font-semibold text-slate-900 mb-1.5">
+                                        Emergency contact name *
+                                    </label>
+                                    <input
+                                        id="emName"
+                                        value={emergencyContactName}
+                                        onChange={(e) => setEmergencyContactName(e.target.value)}
+                                        className={inputCls}
+                                    />
+                                </div>
+
+                                <div>
+                                    <label htmlFor="emRel" className="block text-sm font-semibold text-slate-900 mb-1.5">
+                                        Relationship *
+                                    </label>
+                                    <input
+                                        id="emRel"
+                                        value={emergencyContactRelationship}
+                                        onChange={(e) => setEmergencyContactRelationship(e.target.value)}
+                                        placeholder="e.g. Sibling, Spouse"
+                                        className={inputCls}
+                                    />
+                                </div>
+
+                                <div className="sm:col-span-2">
+                                    <label htmlFor="emPhone" className="block text-sm font-semibold text-slate-900 mb-1.5">
+                                        Emergency contact phone *
+                                    </label>
+                                    <input
+                                        id="emPhone"
+                                        type="tel"
+                                        value={emergencyContactPhone}
+                                        onChange={(e) => setEmergencyContactPhone(e.target.value.replace(/\D/g, ""))}
+                                        placeholder="e.g. 024 123 4567"
+                                        className={inputCls}
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {step === 2 && (
+                        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 sm:p-8 animate-fade-in">
+                            <div className="flex items-center gap-3 mb-6">
+                                <div className="h-10 w-10 rounded-xl bg-brand-100 flex items-center justify-center">
                                     <MapPin className="h-5 w-5 text-brand-600" />
                                 </div>
                                 <div>
@@ -147,7 +361,7 @@ export default function OnboardingPage() {
                         </div>
                     )}
 
-                    {step === 2 && (
+                    {step === 3 && (
                         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 sm:p-8 animate-fade-in">
                             <div className="flex items-center gap-3 mb-6">
                                 <div className="h-10 w-10 rounded-xl bg-brand-100 flex items-center justify-center">
@@ -229,7 +443,7 @@ export default function OnboardingPage() {
                         </div>
                     )}
 
-                    {step === 3 && (
+                    {step === 4 && (
                         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 sm:p-8 animate-fade-in">
                             <div className="flex items-center gap-3 mb-6">
                                 <div className="h-10 w-10 rounded-xl bg-brand-100 flex items-center justify-center">
@@ -252,7 +466,7 @@ export default function OnboardingPage() {
                                         placeholder="e.g. 024 123 4567"
                                         value={momoNumber}
                                         onChange={(e) => setMomoNumber(e.target.value.replace(/\D/g, ""))}
-                                        className="block w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-400 focus:bg-white focus:ring-2 focus:ring-brand-100 transition-all"
+                                        className={inputCls}
                                     />
                                 </div>
 
@@ -291,7 +505,7 @@ export default function OnboardingPage() {
                         </div>
                     )}
 
-                    {step === 4 && (
+                    {step === 5 && (
                         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-8 sm:p-12 text-center animate-fade-in">
                             <div className="inline-flex items-center justify-center h-16 w-16 rounded-full bg-green-100 text-green-600 mb-6">
                                 <ShieldCheck className="h-8 w-8" />
@@ -314,7 +528,7 @@ export default function OnboardingPage() {
                     )}
 
                     {/* Navigation Buttons */}
-                    {step < 4 && (
+                    {step < totalSteps && (
                         <div className="flex items-center justify-between mt-6">
                             <Button
                                 variant="ghost"
@@ -326,14 +540,23 @@ export default function OnboardingPage() {
                                 Back
                             </Button>
 
-                            {step < 3 ? (
+                            {step < 4 ? (
                                 <Button
-                                    onClick={() => setStep((s) => s + 1)}
-                                    disabled={!canProceed()}
+                                    onClick={handleNext}
+                                    disabled={!canProceed() || saving}
                                     className="bg-brand-600 hover:bg-brand-700 text-white font-bold"
                                 >
-                                    Continue
-                                    <ChevronRight className="h-4 w-4 ml-1" />
+                                    {saving && step === 1 ? (
+                                        <>
+                                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                            Saving...
+                                        </>
+                                    ) : (
+                                        <>
+                                            Continue
+                                            <ChevronRight className="h-4 w-4 ml-1" />
+                                        </>
+                                    )}
                                 </Button>
                             ) : (
                                 <Button

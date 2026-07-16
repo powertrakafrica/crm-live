@@ -8,6 +8,7 @@ import InteractiveMap from "@/components/InteractiveMap";
 import { Card } from "@/components/ui/Card";
 import { propertiesApi } from "@/lib/api";
 import { REGIONS } from "@/lib/data";
+import { fetchRegions, type GeoRegion } from "@/lib/geo";
 
 function normalizeRegionId(raw: string): string {
   return raw
@@ -21,26 +22,49 @@ function normalizeRegionId(raw: string): string {
 export default function RegionsPage() {
   const router = useRouter();
   const [regionCounts, setRegionCounts] = useState<Record<string, number>>({});
+  // Mock region slug → real numeric geo id. The listing count query must use the
+  // numeric id; passing the slug (r.id) made the backend do Number("greater-accra")
+  // → NaN → every region showed 0 listings.
+  const [regionIds, setRegionIds] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [hoveredRegion, setHoveredRegion] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all(
-      REGIONS.map((r) =>
-        propertiesApi
-          .list({ regionId: r.id, status: "Live", limit: "1" })
-          .then(
-            (res: any) =>
-              [r.id, res.pagination?.total ?? 0] as [string, number],
-          )
-          .catch(() => [r.id, 0] as [string, number]),
-      ),
-    ).then((results) => {
+    let cancelled = false;
+    (async () => {
+      const realRegions = await fetchRegions().catch(() => [] as GeoRegion[]);
+      if (cancelled) return;
+      const idMap: Record<string, number> = {};
+      for (const mock of REGIONS) {
+        const real = realRegions.find(
+          (rr) => rr.name.toLowerCase() === mock.name.toLowerCase(),
+        );
+        if (real) idMap[mock.id] = real.id;
+      }
+      setRegionIds(idMap);
+      const results = await Promise.all(
+        REGIONS.map((r) => {
+          const numId = idMap[r.id];
+          if (numId === undefined)
+            return Promise.resolve([r.id, 0] as [string, number]);
+          return propertiesApi
+            .list({ regionId: String(numId), status: "Live", limit: "1" })
+            .then(
+              (res: any) =>
+                [r.id, res.pagination?.total ?? 0] as [string, number],
+            )
+            .catch(() => [r.id, 0] as [string, number]);
+        }),
+      );
+      if (cancelled) return;
       const map: Record<string, number> = {};
       for (const [id, count] of results) map[id] = count;
       setRegionCounts(map);
       setLoading(false);
-    });
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const handleMapRegionSelect = (rawCode: string) => {

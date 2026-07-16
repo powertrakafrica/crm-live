@@ -6,8 +6,16 @@ import { ArrowLeft, MapPinned, Loader2 } from "lucide-react";
 import InteractiveMap from "@/components/InteractiveMap";
 import { Card } from "@/components/ui/Card";
 import PropertyCard from "@/components/PropertyCard";
+import { imageVariantUrl } from "@/lib/images";
 import { propertiesApi } from "@/lib/api";
-import { REGIONS, getRegionById, getConstituenciesByRegion } from "@/lib/data";
+import {
+    getConstituenciesForRegion,
+    getRegionBySlug,
+    mockRegionFor,
+    slugify,
+    type GeoConstituency,
+    type GeoRegion,
+} from "@/lib/geo";
 
 interface FeaturedProperty {
     id: number;
@@ -28,39 +36,63 @@ export default function RegionPage({ params }: { params: Promise<{ regionId: str
     const resolvedParams = use(params);
     const regionId = resolvedParams.regionId;
 
-    const region = getRegionById(regionId) ?? REGIONS.find((r) => r.name === decodeURIComponent(regionId));
-    const regionName = region?.name ?? decodeURIComponent(regionId);
-    const constituencies = getConstituenciesByRegion(regionId);
+    // Real geo metadata, resolved async from the URL slug. `region` carries the
+    // numeric id used to filter properties; the mock entry is a display-only
+    // fallback for fields the geo API doesn't expose (capital city).
+    const [region, setRegion] = useState<GeoRegion | null>(null);
+    const [constituencies, setConstituencies] = useState<GeoConstituency[]>([]);
+    const [geoLoading, setGeoLoading] = useState(true);
 
     const [totalListings, setTotalListings] = useState(0);
     const [featured, setFeatured] = useState<FeaturedProperty[]>([]);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        setLoading(true);
-        Promise.all([
-            propertiesApi.list({ regionId, status: "Live", limit: "1" }),
-            propertiesApi.list({ regionId, status: "Live", limit: "6" }),
-        ])
-            .then(([countRes, featuredRes]: [any, any]) => {
-                setTotalListings(countRes.pagination?.total ?? 0);
-                setFeatured(featuredRes.data ?? []);
-            })
-            .catch(() => {
+        let cancelled = false;
+        setGeoLoading(true);
+        (async () => {
+            const real = await getRegionBySlug(regionId).catch(() => null);
+            if (cancelled) return;
+            setRegion(real);
+            if (!real) {
+                setConstituencies([]);
                 setTotalListings(0);
                 setFeatured([]);
-            })
-            .finally(() => setLoading(false));
+                setLoading(false);
+                setGeoLoading(false);
+                return;
+            }
+            const cons = await getConstituenciesForRegion(real.id).catch(() => [] as GeoConstituency[]);
+            if (cancelled) return;
+            setConstituencies(cons);
+            setGeoLoading(false);
+
+            // Filter by the NUMERIC region id — passing the URL slug here was the
+            // bug: Number("greater-accra") → NaN → empty results.
+            setLoading(true);
+            Promise.all([
+                propertiesApi.list({ regionId: String(real.id), status: "Live", limit: "1" }),
+                propertiesApi.list({ regionId: String(real.id), status: "Live", limit: "6" }),
+            ])
+                .then(([countRes, featuredRes]: [any, any]) => {
+                    if (cancelled) return;
+                    setTotalListings(countRes.pagination?.total ?? 0);
+                    setFeatured(featuredRes.data ?? []);
+                })
+                .catch(() => {
+                    if (cancelled) return;
+                    setTotalListings(0);
+                    setFeatured([]);
+                })
+                .finally(() => { if (!cancelled) setLoading(false); });
+        })();
+        return () => { cancelled = true; };
     }, [regionId]);
 
-    // Fallback generic constituencies if we don't have specific data
-    const displayConstituencies = constituencies.length > 0
-        ? constituencies
-        : [
-            { id: `${regionId}-c1`, name: "Capital Constituency", listingCount: 0, regionId, districts: [] },
-            { id: `${regionId}-c2`, name: "North Constituency", listingCount: 0, regionId, districts: [] },
-            { id: `${regionId}-c3`, name: "South Constituency", listingCount: 0, regionId, districts: [] },
-        ];
+    const mockRegion = mockRegionFor(region);
+    const regionName = region?.name ?? mockRegion?.name ?? decodeURIComponent(regionId);
+    const capitalCity = mockRegion?.capitalCity;
+    const constituencyCount = constituencies.length || mockRegion?.constituencyCount;
 
     return (
         <div className="flex flex-col min-h-screen bg-slate-50">
@@ -81,11 +113,18 @@ export default function RegionPage({ params }: { params: Promise<{ regionId: str
                             <p className="text-lg text-slate-600 font-medium max-w-2xl">
                                 Select a constituency below to view verified homes and land available.
                             </p>
-                            {region && (
+                            {(capitalCity || constituencyCount) && (
                                 <p className="mt-1 text-sm font-semibold text-slate-500">
-                                    Capital: <span className="text-slate-800">{region.capitalCity}</span>
-                                    {" · "}
-                                    <span className="text-slate-800">{region.constituencyCount}</span> constituencies
+                                    {capitalCity && (
+                                        <>
+                                            Capital: <span className="text-slate-800">{capitalCity}</span>
+                                            {" · "}
+                                        </>
+                                    )}
+                                    {constituencyCount !== undefined && (
+                                        <span className="text-slate-800">{constituencyCount}</span>
+                                    )}
+                                    {constituencyCount !== undefined && " constituencies"}
                                 </p>
                             )}
                         </div>
@@ -131,20 +170,30 @@ export default function RegionPage({ params }: { params: Promise<{ regionId: str
                         </h2>
 
                         <div className="space-y-3">
-                            {displayConstituencies.map((c) => (
-                                <Link key={c.id} href={`/constituency/${c.id}`} className="block group">
-                                    <Card className="p-5 border-slate-200 hover:border-brand-400 hover:shadow-md transition-all">
-                                        <div className="flex justify-between items-center">
-                                            <h3 className="font-heading font-bold text-lg text-slate-900 group-hover:text-brand-600 transition-colors">
-                                                {c.name}
-                                            </h3>
-                                            <span className="bg-brand-50 text-brand-700 font-bold px-2.5 py-0.5 rounded-xl text-xs border border-brand-200 uppercase tracking-wide">
-                                                {c.listingCount} listings
-                                            </span>
-                                        </div>
-                                    </Card>
-                                </Link>
-                            ))}
+                            {geoLoading ? (
+                                <div className="flex items-center gap-2 text-sm text-slate-500 font-medium px-1">
+                                    <Loader2 className="h-4 w-4 animate-spin" /> Loading constituencies…
+                                </div>
+                            ) : constituencies.length > 0 ? (
+                                constituencies.map((c) => (
+                                    <Link key={c.id} href={`/constituency/${slugify(c.name)}`} className="block group">
+                                        <Card className="p-5 border-slate-200 hover:border-brand-400 hover:shadow-md transition-all">
+                                            <div className="flex justify-between items-center">
+                                                <h3 className="font-heading font-bold text-lg text-slate-900 group-hover:text-brand-600 transition-colors">
+                                                    {c.name}
+                                                </h3>
+                                                <span className="bg-brand-50 text-brand-700 font-bold px-2.5 py-0.5 rounded-xl text-xs border border-brand-200 uppercase tracking-wide">
+                                                    View →
+                                                </span>
+                                            </div>
+                                        </Card>
+                                    </Link>
+                                ))
+                            ) : (
+                                <p className="text-sm text-slate-500 font-medium px-1">
+                                    Constituency breakdown unavailable for this region.
+                                </p>
+                            )}
                         </div>
                     </div>
 
@@ -165,7 +214,7 @@ export default function RegionPage({ params }: { params: Promise<{ regionId: str
                                 </p>
                             </div>
                             <Link
-                                href={`/properties?regionId=${regionId}`}
+                                href={`/properties?regionId=${region ? String(region.id) : regionId}`}
                                 className="hidden sm:inline-flex items-center text-sm font-semibold text-brand-600 hover:text-brand-700 transition-colors"
                             >
                                 View all in {regionName}
@@ -185,7 +234,7 @@ export default function RegionPage({ params }: { params: Promise<{ regionId: str
                                         location={property.location}
                                         bedrooms={property.bedrooms}
                                         bathrooms={property.bathrooms}
-                                        imageUrl={property.images?.[0]?.url ?? "/placeholder.jpg"}
+                                        imageUrl={imageVariantUrl(property.images?.[0], "thumb") ?? "/placeholder.jpg"}
                                         isVerified={property.isVerified}
                                         category={property.category as "Rent" | "Sale" | "Rent-to-Own"}
                                     />
