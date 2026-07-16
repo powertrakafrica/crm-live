@@ -40,6 +40,8 @@ interface PropertyDetail {
     amenities?: string[] | null;
     images: PropertyImage[];
     owner: PropertyOwner | null;
+    documentsTotal?: number;
+    documentsApproved?: number;
 }
 
 function getInitials(name: string): string {
@@ -335,6 +337,16 @@ export default function PropertyPage({ params }: { params: Promise<{ propertyId:
                                 )}
                             </div>
                         </div>
+
+                        {/* Documents verified badge — aggregate only; no URLs/types leak on the public page */}
+                        {property.documentsTotal && property.documentsTotal > 0 && (
+                            <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-sm border border-brand-200 bg-brand-50 text-brand-800 text-sm font-medium">
+                                <ShieldCheck className="h-4 w-4" />
+                                {property.documentsApproved && property.documentsApproved >= property.documentsTotal
+                                    ? `All ${property.documentsTotal} document${property.documentsTotal === 1 ? "" : "s"} verified`
+                                    : `${property.documentsApproved ?? 0} of ${property.documentsTotal} document${property.documentsTotal === 1 ? "" : "s"} verified`}
+                            </div>
+                        )}
 
                         {/* Verification */}
                         {verificationChecks && (
