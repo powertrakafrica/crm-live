@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { Briefcase, Heart, CheckCircle2, Clock, Edit3, Save, MessageSquare, UserCircle2, ShieldCheck } from "lucide-react";
+import { Briefcase, Heart, CheckCircle2, Clock, Edit3, Save, MessageSquare, UserCircle2, ShieldCheck, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import PropertyCard from "@/components/PropertyCard";
@@ -25,6 +25,7 @@ export function ClientDashboard() {
     const [loading, setLoading] = useState(true);
     const [vaultNotes, setVaultNotes] = useState<{ [key: string]: string }>({});
     const [editingNote, setEditingNote] = useState<string | null>(null);
+    const [savingNote, setSavingNote] = useState<string | null>(null);
     const [savedProperties, setSavedProperties] = useState<any[]>([]);
     const [savedLoading, setSavedLoading] = useState(true);
 
@@ -47,18 +48,34 @@ export function ClientDashboard() {
 
         clientApi.savedProperties.list()
             .then((data: any[]) => {
-                const mapped = (data ?? []).map((item: any) => ({
-                    ...item,
-                    note: vaultNotes[item.id] || "",
-                }));
-                setSavedProperties(mapped);
+                const list = (data ?? []).map((item: any) => ({ ...item }));
+                setSavedProperties(list);
+                setVaultNotes(Object.fromEntries(list.map((d) => [d.id, d.note ?? ""])));
             })
             .catch(() => setSavedProperties([]))
             .finally(() => setSavedLoading(false));
     }, []);
 
-    const handleSaveNote = (propertyId: string) => {
-        setEditingNote(null);
+    const handleSaveNote = async (propertyId: string) => {
+        const id = Number(propertyId);
+        setSavingNote(propertyId);
+        try {
+            await clientApi.savedProperties.updateNote(id, vaultNotes[propertyId] ?? null);
+        } catch {
+            // best-effort: leave the draft intact so the user can retry
+        } finally {
+            setSavingNote(null);
+            setEditingNote(null);
+        }
+    };
+
+    const handleUnsave = async (propertyId: number) => {
+        try {
+            await clientApi.savedProperties.remove(propertyId);
+            setSavedProperties((prev) => prev.filter((p) => p.id !== propertyId));
+        } catch {
+            // best-effort: leave the card so the user can retry
+        }
     };
 
     return (
@@ -174,6 +191,13 @@ export function ClientDashboard() {
                         )}
                         {!savedLoading && savedProperties.map((property: any) => (
                             <div key={property.id} className="bg-white border border-charcoal-200 rounded-sm shadow-sm p-4 relative overflow-hidden group">
+                                <button
+                                    onClick={() => handleUnsave(property.id)}
+                                    title="Remove from Vault"
+                                    className="absolute top-2 right-2 z-10 h-8 w-8 flex items-center justify-center rounded-sm bg-white/90 text-charcoal-500 hover:text-red-600 hover:bg-red-50 shadow-sm border border-charcoal-200 transition-colors"
+                                >
+                                    <Trash2 className="h-4 w-4" />
+                                </button>
                                 <PropertyCard
                                     id={String(property.id)}
                                     title={property.title}
@@ -206,8 +230,9 @@ export function ClientDashboard() {
                                                 placeholder="Add your private thoughts here..."
                                             />
                                             <div className="flex justify-end mt-2">
-                                                <Button size="sm" onClick={() => handleSaveNote(property.id)} className="h-7 text-xs font-bold bg-brand-600 text-white shadow-none px-4">
-                                                    <Save className="h-3 w-3 mr-1.5" /> Save Note
+                                                <Button size="sm" onClick={() => handleSaveNote(property.id)} disabled={savingNote === String(property.id)} className="h-7 text-xs font-bold bg-brand-600 text-white shadow-none px-4">
+                                                    <Save className="h-3 w-3 mr-1.5" />
+                                                    {savingNote === String(property.id) ? "Saving…" : "Save Note"}
                                                 </Button>
                                             </div>
                                         </div>
