@@ -247,6 +247,14 @@ export const clientApi = {
     savedProperties: () => fetchJson<unknown[]>("/client/saved-properties"),
     serviceRequests: () => fetchJson<unknown>("/client/service-requests"),
     payments: () => fetchJson<unknown[]>("/client/payments"),
+    savedSearches: {
+        create: (body: Record<string, unknown>) =>
+            fetchJson<unknown>("/client/saved-searches", { method: "POST", body: JSON.stringify(body) }),
+        delete: (id: number) => fetchJson<{ message: string }>(`/client/saved-searches/${id}`, { method: "DELETE" }),
+        list: () => fetchJson<unknown[]>("/client/saved-searches"),
+        updateAlert: (id: number, alertEnabled: boolean) =>
+            fetchJson<unknown>(`/client/saved-searches/${id}`, { method: "PATCH", body: JSON.stringify({ alertEnabled }) }),
+    },
 };
 
 // ─── Upload ──────────────────────────────────────────

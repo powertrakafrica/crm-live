@@ -5,6 +5,7 @@ import { Search, Map as MapIcon, ShieldCheck, Home, MapPin, SlidersHorizontal, A
 import { Button } from "@/components/ui/Button";
 import PropertyCard from "@/components/PropertyCard";
 import { propertiesApi } from "@/lib/api";
+import { SavedSearches } from "./SavedSearches";
 
 interface Property {
     id: number;
@@ -20,6 +21,24 @@ interface Property {
     district?: string;
 }
 
+const mapProperty = (p: unknown): Property => {
+    const prop = p as Record<string, unknown>;
+    const images = (prop.images as { isPrimary: boolean; url: string }[] | undefined) ?? [];
+    return {
+        bathrooms: Number(prop.bathrooms ?? 0),
+        bedrooms: Number(prop.bedrooms ?? 0),
+        category: String(prop.category ?? ""),
+        district: prop.district as string | undefined,
+        id: Number(prop.id),
+        images,
+        isVerified: Boolean(prop.isVerified ?? false),
+        location: String(prop.location ?? ""),
+        price: Number(prop.price ?? 0),
+        pricePeriod: (prop.pricePeriod as string) || "month",
+        title: String(prop.title ?? ""),
+    };
+};
+
 export function ClientDiscovery() {
     const [searchMode, setSearchMode] = useState<"map" | "list">("list");
     const [verifiedOnly, setVerifiedOnly] = useState(true);
@@ -29,25 +48,17 @@ export function ClientDiscovery() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
 
+    const currentQuery: Record<string, string> = {};
+    if (searchQuery) currentQuery.search = searchQuery;
+    if (activeCategory === "land") currentQuery.propertyType = "Land";
+    if (verifiedOnly) currentQuery.verified = "true";
+
     useEffect(() => {
         propertiesApi.list()
-            .then((data: any) => {
-                const mapped = (data ?? []).map((p: any) => ({
-                    id: p.id,
-                    title: p.title,
-                    price: p.price,
-                    pricePeriod: p.pricePeriod || "month",
-                    location: p.location,
-                    bedrooms: p.bedrooms || 0,
-                    bathrooms: p.bathrooms || 0,
-                    images: p.images || [],
-                    isVerified: p.isVerified || false,
-                    category: p.category,
-                    district: p.district,
-                }));
-                setProperties(mapped);
+            .then((data: unknown) => {
+                setProperties((data as unknown[])?.map(mapProperty) ?? []);
             })
-            .catch((err: any) => setError(err.message || "Failed to load properties"))
+            .catch((err: unknown) => setError(err instanceof Error ? err.message : "Failed to load properties"))
             .finally(() => setLoading(false));
     }, []);
 
@@ -181,6 +192,9 @@ export function ClientDiscovery() {
                 </div>
             ) : (
                 <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                    <div className="mb-2">
+                        <SavedSearches currentQuery={currentQuery} onApplyResults={(raw) => setProperties(raw.map(mapProperty))} />
+                    </div>
                     {filteredProperties.length === 0 ? (
                         <div className="text-center py-24 bg-white border border-charcoal-200 rounded-sm shadow-sm">
                             <div className="h-16 w-16 bg-charcoal-100 rounded-full flex items-center justify-center mx-auto mb-4">
