@@ -1,4 +1,4 @@
-import type { GeoRegion, GeoConstituency } from "./coverage";
+import type { GeoConstituency, GeoConstituencyDetail, GeoRegion, GeoRegionDetail } from "./coverage";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:9001/api";
 
@@ -360,8 +360,12 @@ export const geoApi = {
       : "";
     return fetchJson<GeoRegion[]>(`/geo/regions${qs}`);
   },
+  region: (regionId: number) =>
+    fetchJson<GeoRegionDetail>(`/geo/regions/${regionId}`),
   constituencies: (regionId: number) =>
     fetchJson<GeoConstituency[]>(`/geo/regions/${regionId}/constituencies`),
+  constituency: (constituencyId: number) =>
+    fetchJson<GeoConstituencyDetail>(`/geo/constituencies/${constituencyId}`),
   allConstituencies: () => fetchJson<GeoConstituency[]>(`/geo/constituencies`),
 };
 

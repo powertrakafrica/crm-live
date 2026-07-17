@@ -25,6 +25,23 @@ export interface GeoConstituency {
   centroid?: { lat: number; lng: number };
 }
 
+export interface GeoRegionDetail {
+  centroid?: { lat: number; lng: number };
+  constituencyCount: number;
+  country: { code: string; name: string };
+  id: number;
+  name: string;
+}
+
+export interface GeoConstituencyDetail {
+  centroid?: { lat: number; lng: number };
+  code?: string;
+  id: number;
+  name: string;
+  regionId: number;
+  regionName?: string;
+}
+
 /** Extract items from a GET /profile/agent `coverage` object (tolerant of null/undefined). */
 export function coverageToItems(coverage: unknown): CoverageItem[] {
   if (!coverage || typeof coverage !== "object") return [];
