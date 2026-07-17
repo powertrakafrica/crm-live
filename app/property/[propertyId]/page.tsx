@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import VerificationPanel from "@/components/VerificationPanel";
 import CheckoutModal from "@/components/CheckoutModal";
-import { api, clientApi, messageApi, propertiesApi, verificationApi } from "@/lib/api";
+import { api, clientApi, fetchJsonRaw, propertiesApi, verificationApi } from "@/lib/api";
 
 interface PropertyImage {
     url: string;
@@ -138,13 +138,18 @@ export default function PropertyPage({ params }: { params: Promise<{ propertyId:
     const handleWhatsAppClick = async () => {
         if (!ownerPhone || !property?.owner?.id) return;
         // Best-effort: create a message thread if the visitor is logged in
-        // (the access cookie is sent automatically). A logged-out 401 is
-        // swallowed here — the WhatsApp link still opens regardless.
+        // (the access cookie is sent automatically). Use fetchJsonRaw (not
+        // messageApi.createThread / fetchJson) so a logged-out 401 is a normal
+        // rejection swallowed by the catch — fetchJson would instead trigger
+        // clearAuthAndRedirect() and bounce the visitor to /auth/login.
         try {
-            await messageApi.createThread({
-                participant2Id: property.owner.id,
-                propertyId: property.id,
-                threadType: "Property",
+            await fetchJsonRaw("/messages/threads", {
+                method: "POST",
+                body: JSON.stringify({
+                    participant2Id: property.owner.id,
+                    propertyId: property.id,
+                    threadType: "Property",
+                }),
             });
         } catch {
             // Non-blocking
