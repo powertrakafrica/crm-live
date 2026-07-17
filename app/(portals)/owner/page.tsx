@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { LayoutDashboard, ListPlus, ShieldCheck, Wallet, UserCircle } from "lucide-react";
+import { LayoutDashboard, ListPlus, MessageCircle, ShieldCheck, UserCircle, Wallet } from "lucide-react";
 import { OwnerDashboard } from "./components/OwnerDashboard";
 import { OwnerListings } from "./components/OwnerListings";
+import { OwnerMessages } from "./components/OwnerMessages";
 import { OwnerVerification } from "./components/OwnerVerification";
 import { OwnerProfile } from "./components/OwnerProfile";
 import { OwnerFinance } from "./components/OwnerFinance";
@@ -13,6 +14,7 @@ export default function OwnerPortal() {
 
     const tabs = [
         { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+        { id: "messages", label: "Messages", icon: MessageCircle },
         { id: "listings", label: "My Listings", icon: ListPlus },
         { id: "verification", label: "Trust Engine", icon: ShieldCheck },
         { id: "finance", label: "Financials", icon: Wallet },
@@ -22,6 +24,7 @@ export default function OwnerPortal() {
     const renderContent = () => {
         switch (activeTab) {
             case "dashboard": return <OwnerDashboard />;
+            case "messages": return <OwnerMessages />;
             case "listings": return <OwnerListings />;
             case "verification": return <OwnerVerification />;
             case "finance": return <OwnerFinance />;
