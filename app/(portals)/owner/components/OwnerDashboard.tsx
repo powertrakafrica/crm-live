@@ -211,7 +211,9 @@ export function OwnerDashboard() {
                             )}
                         </CardHeader>
                         <CardContent className="p-4 sm:p-6 space-y-6">
-                            {availLoading || !config ? (
+                            {!availLoading && ownerProperties.length === 0 ? (
+                                <p className="text-sm text-charcoal-400 py-8 text-center">No listings yet — add a property to manage availability.</p>
+                            ) : availLoading || !config ? (
                                 <div className="flex items-center justify-center py-8 text-charcoal-400"><Loader2 className="h-5 w-5 animate-spin" /></div>
                             ) : (
                                 <>
