@@ -2,12 +2,12 @@
 
 import { use, useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, SlidersHorizontal, Search, ChevronLeft, ChevronRight, MapPin, Loader2 } from "lucide-react";
+import { ArrowLeft, Search, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import PropertyCard from "@/components/PropertyCard";
 import InteractiveMap from "@/components/InteractiveMap";
-import { propertiesApi } from "@/lib/api";
-import { CONSTITUENCIES, REGIONS, getConstituencyById, getRegionById } from "@/lib/data";
+import { geoApi, propertiesApi } from "@/lib/api";
+import type { GeoConstituencyDetail } from "@/lib/coverage";
 
 interface ApiProperty {
     id: number;
@@ -24,17 +24,30 @@ interface ApiProperty {
     gpsLongitude?: string | null;
 }
 
+interface PropertyListResponse {
+    data?: ApiProperty[];
+    pagination?: { total: number };
+}
+
 export default function ConstituencyPage({ params }: { params: Promise<{ constituencyId: string }> }) {
     const resolvedParams = use(params);
-    const constituencyId = resolvedParams.constituencyId;
+    const rawConstituencyId = resolvedParams.constituencyId;
+    const numericConstituencyId = Number(rawConstituencyId);
+    const constituencyId = Number.isNaN(numericConstituencyId) ? null : numericConstituencyId;
 
-    const constituency = getConstituencyById(constituencyId)
-        ?? CONSTITUENCIES.find((c) => c.name === decodeURIComponent(constituencyId));
+    const [constituency, setConstituency] = useState<GeoConstituencyDetail | null>(null);
 
-    const constituencyName = constituency?.name ?? decodeURIComponent(constituencyId);
-    const districts = constituency?.districts ?? ["Main District"];
-    const parentRegion = getRegionById(constituency?.regionId ?? "") ?? REGIONS.find((r) => r.id === constituency?.regionId);
-    const parentRegionName = parentRegion?.name;
+    useEffect(() => {
+        if (constituencyId == null) return;
+        let alive = true;
+        geoApi.constituency(constituencyId)
+            .then((c) => { if (alive) setConstituency(c); })
+            .catch(() => { if (alive) setConstituency(null); });
+        return () => { alive = false; };
+    }, [constituencyId]);
+
+    const constituencyName = constituency?.name ?? decodeURIComponent(rawConstituencyId);
+    const parentRegionName = constituency?.regionName;
 
     const [properties, setProperties] = useState<ApiProperty[]>([]);
     const [total, setTotal] = useState(0);
@@ -45,10 +58,11 @@ export default function ConstituencyPage({ params }: { params: Promise<{ constit
     const itemsPerPage = 9;
 
     useEffect(() => {
+        if (constituencyId == null) return;
         setLoading(true);
         setPage(1);
         const filters: Record<string, string> = {
-            constituencyId,
+            constituencyId: String(constituencyId),
             limit: String(itemsPerPage),
             status: "Live",
         };
@@ -57,9 +71,10 @@ export default function ConstituencyPage({ params }: { params: Promise<{ constit
 
         propertiesApi
             .list(filters)
-            .then((res: any) => {
-                setProperties(res.data ?? []);
-                setTotal(res.pagination?.total ?? 0);
+            .then((res: unknown) => {
+                const r = res as PropertyListResponse;
+                setProperties(r.data ?? []);
+                setTotal(r.pagination?.total ?? 0);
             })
             .catch(() => {
                 setProperties([]);
@@ -69,9 +84,10 @@ export default function ConstituencyPage({ params }: { params: Promise<{ constit
     }, [constituencyId, searchQuery, selectedCategory]);
 
     useEffect(() => {
+        if (constituencyId == null) return;
         setLoading(true);
         const filters: Record<string, string> = {
-            constituencyId,
+            constituencyId: String(constituencyId),
             limit: String(itemsPerPage),
             page: String(page),
             status: "Live",
@@ -81,14 +97,24 @@ export default function ConstituencyPage({ params }: { params: Promise<{ constit
 
         propertiesApi
             .list(filters)
-            .then((res: any) => {
-                setProperties(res.data ?? []);
+            .then((res: unknown) => {
+                const r = res as PropertyListResponse;
+                setProperties(r.data ?? []);
             })
             .catch(() => setProperties([]))
             .finally(() => setLoading(false));
-    }, [page]);
+    }, [page, constituencyId]);
 
     const totalPages = Math.ceil(total / itemsPerPage);
+
+    if (constituencyId == null) {
+        return (
+            <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50 text-center px-4">
+                <h1 className="text-2xl font-heading font-bold text-slate-900 mb-2">Constituency not found</h1>
+                <Link href="/regions" className="text-brand-600 font-bold hover:text-brand-700">Back to regions</Link>
+            </div>
+        );
+    }
 
     return (
         <div className="flex flex-col min-h-screen bg-slate-50">
@@ -121,10 +147,6 @@ export default function ConstituencyPage({ params }: { params: Promise<{ constit
                         </div>
 
                         <div className="flex gap-3 w-full sm:w-auto mt-3 sm:mt-0">
-                            <Button variant="outline" className="gap-2 rounded-xl font-bold shadow-sm flex-1 sm:flex-none border-slate-300 text-slate-700">
-                                <SlidersHorizontal className="h-4 w-4" />
-                                Filters
-                            </Button>
                             <select
                                 value={selectedCategory}
                                 onChange={(e) => { setSelectedCategory(e.target.value); setPage(1); }}
@@ -137,22 +159,6 @@ export default function ConstituencyPage({ params }: { params: Promise<{ constit
                             </select>
                         </div>
                     </div>
-                </div>
-
-                {/* Districts Horizontal Scroll */}
-                <div className="max-w-7xl mx-auto mt-6 flex overflow-x-auto pb-2 gap-2 scrollbar-hide">
-                    <button className="shrink-0 px-4 py-2 rounded-xl border text-sm font-bold transition-all bg-slate-950 border-slate-950 text-white shadow-md">
-                        All Districts
-                    </button>
-                    {districts.map((district) => (
-                        <button
-                            key={district}
-                            className="shrink-0 flex items-center gap-1.5 px-4 py-2 rounded-xl border text-sm font-bold transition-all bg-white border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50"
-                        >
-                            <MapPin className="h-3.5 w-3.5" />
-                            {district}
-                        </button>
-                    ))}
                 </div>
             </div>
 
@@ -172,7 +178,7 @@ export default function ConstituencyPage({ params }: { params: Promise<{ constit
                     />
                     {parentRegionName && (
                         <p className="text-xs text-slate-500 mt-2 font-medium">
-                            Showing {parentRegionName} region map with property markers. Constituency boundary data not yet available.
+                            Showing {parentRegionName} region map with property markers.
                         </p>
                     )}
                 </div>
@@ -180,24 +186,9 @@ export default function ConstituencyPage({ params }: { params: Promise<{ constit
 
             {/* Main Content Area */}
             <div className="flex-1 px-4 sm:px-6 lg:px-8 py-8">
-                <div className="max-w-7xl mx-auto flex flex-col lg:flex-row gap-8">
-                    {/* Sidebar Filters */}
-                    <div className="hidden lg:block w-64 shrink-0 space-y-8 sticky top-56 self-start">
-                        <div>
-                            <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider mb-4">Property Type</h3>
-                            <div className="space-y-3">
-                                {["Houses", "Apartments", "Commercial", "Land"].map((type) => (
-                                    <label key={type} className="flex items-center gap-3 cursor-pointer group">
-                                        <input type="checkbox" defaultChecked={type === "Houses" || type === "Apartments"} className="w-5 h-5 rounded-xl border-slate-300 text-brand-600 focus:ring-brand-600" />
-                                        <span className="text-sm font-medium text-slate-700 group-hover:text-slate-900">{type}</span>
-                                    </label>
-                                ))}
-                            </div>
-                        </div>
-                    </div>
-
+                <div className="max-w-7xl mx-auto">
                     {/* Listings Section */}
-                    <div className="flex-1 flex flex-col min-h-[600px]">
+                    <div className="flex flex-col min-h-[600px]">
                         {loading ? (
                             <div className="flex flex-col items-center justify-center py-20">
                                 <Loader2 className="h-10 w-10 animate-spin text-brand-600 mb-4" />
