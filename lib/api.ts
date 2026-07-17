@@ -389,12 +389,27 @@ export const messageApi = {
 
 // ─── Bookings ────────────────────────────────────────
 
+export type BookingSlot = { id: string; day: string; date: string; times: string[] };
+
 export const bookingApi = {
-    slots: (propertyId: number) => fetchJson<unknown[]>(`/bookings/slots/${propertyId}`),
+    slots: (propertyId: number) => fetchJson<BookingSlot[]>(`/bookings/slots/${propertyId}`),
     create: (body: Record<string, unknown>) => fetchJson<unknown>("/bookings", { method: "POST", body: JSON.stringify(body) }),
     myBookings: () => fetchJson<unknown[]>("/bookings/my"),
     get: (id: number) => fetchJson<unknown>(`/bookings/${id}`),
+    forProperty: (propertyId: number) => fetchJson<unknown[]>(`/bookings/property/${propertyId}`),
     updateStatus: (id: number, status: string) => fetchJson<unknown>(`/bookings/${id}/status`, { method: "PATCH", body: JSON.stringify({ status }) }),
+};
+
+// ─── Availability ────────────────────────────────────
+
+export const availabilityApi = {
+    get: (propertyId: number) => fetchJson<unknown>(`/properties/${propertyId}/availability`),
+    put: (propertyId: number, body: Record<string, unknown>) =>
+        fetchJson<unknown>(`/properties/${propertyId}/availability`, { method: "PUT", body: JSON.stringify(body) }),
+    addBlackout: (propertyId: number, body: { endAt: string; reason?: string; startAt: string }) =>
+        fetchJson<unknown>(`/properties/${propertyId}/availability/blackouts`, { method: "POST", body: JSON.stringify(body) }),
+    removeBlackout: (propertyId: number, blackoutId: number) =>
+        fetchJson<{ message: string }>(`/properties/${propertyId}/availability/blackouts/${blackoutId}`, { method: "DELETE" }),
 };
 
 // ─── Ratings ─────────────────────────────────────────

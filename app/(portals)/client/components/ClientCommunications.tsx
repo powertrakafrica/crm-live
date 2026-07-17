@@ -5,7 +5,7 @@ import { MessageSquare, Calendar, Star, Flag, CheckCircle2, ChevronDown, Phone, 
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
-import { messageApi, propertiesApi, bookingApi, ratingApi, reportApi } from "@/lib/api";
+import { messageApi, propertiesApi, bookingApi, ratingApi, reportApi, type BookingSlot } from "@/lib/api";
 
 interface Thread {
     id: number;
@@ -33,12 +33,7 @@ interface Booking {
     notes?: string | null;
 }
 
-interface Slot {
-    id: string;
-    day: string;
-    date: string;
-    times: string[];
-}
+type Slot = BookingSlot;
 
 const RATING_CATEGORIES = ["Punctuality", "Knowledge", "Professionalism"];
 const REPORT_REASONS = ["Duplicate Listing", "Incorrect Location", "Property No Longer Available", "Suspected Fraud", "Misleading Photos", "Other"];
@@ -134,7 +129,7 @@ export function ClientCommunications() {
     useEffect(() => {
         if (selectedPropertyId && activeSection === "calendar") {
             setSlotsLoading(true);
-            (bookingApi.slots(selectedPropertyId) as Promise<Slot[]>)
+            bookingApi.slots(selectedPropertyId)
                 .then((data) => setSlots(data))
                 .catch((err: any) => setError(err.message || "Failed to load slots"))
                 .finally(() => setSlotsLoading(false));
