@@ -61,7 +61,7 @@ export const DOCUMENT_TYPES: { label: string; value: string }[] = [
     { label: "Other (specify label)", value: "Other" },
 ];
 
-async function fetchJsonRaw<T>(path: string, options?: RequestInit): Promise<T> {
+export async function fetchJsonRaw<T>(path: string, options?: RequestInit): Promise<T> {
     const res = await fetch(`${API_BASE}${path}`, {
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -378,13 +378,45 @@ export const verificationApi = {
 
 // ─── Messages ────────────────────────────────────────
 
+export type Message = {
+    body: string;
+    createdAt: string;
+    direction: "inbound" | "outbound";
+    id: number;
+    provider: string;
+    recipientId: number | null;
+    senderId: number | null;
+    status: string;
+    threadId: number;
+};
+
+export type Thread = {
+    contactName: string;
+    createdAt: string;
+    id: number;
+    isActive: boolean;
+    lastMessage: { body: string | null; createdAt: string; direction: string; id: number; senderId: number | null; threadId: number } | null;
+    lastMessageAt: string | null;
+    participant1Id: number;
+    participant1Name: string | null;
+    participant2Id: number;
+    participant2Name: string | null;
+    propertyId: number | null;
+    propertyTitle: string | null;
+    threadType: string;
+    unread: number;
+    unreadCountP1: number;
+    unreadCountP2: number;
+    updatedAt: string;
+};
+
 export const messageApi = {
-    threads: () => fetchJson<unknown[]>("/messages/threads"),
-    threadMessages: (threadId: number) => fetchJson<unknown[]>(`/messages/threads/${threadId}`),
-    send: (threadId: number, body: string) =>
-        fetchJson<unknown>(`/messages/threads/${threadId}`, { method: "POST", body: JSON.stringify({ body }) }),
     createThread: (body: { participant2Id: number; propertyId?: number; threadType?: string }) =>
-        fetchJson<unknown>("/messages/threads", { method: "POST", body: JSON.stringify(body) }),
+        fetchJson<Thread>("/messages/threads", { method: "POST", body: JSON.stringify(body) }),
+    send: (threadId: number, body: string) =>
+        fetchJson<Message>(`/messages/threads/${threadId}`, { method: "POST", body: JSON.stringify({ body }) }),
+    threadMessages: (threadId: number) => fetchJson<Message[]>(`/messages/threads/${threadId}`),
+    threads: () => fetchJson<Thread[]>("/messages/threads"),
 };
 
 // ─── Bookings ────────────────────────────────────────
