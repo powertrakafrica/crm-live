@@ -237,12 +237,17 @@ export function ClientDashboard() {
                                             </div>
                                         </div>
                                     ) : (
-                                        <div
-                                            onClick={() => setEditingNote(property.id)}
-                                            className={`text-sm p-3 rounded-sm cursor-pointer border border-transparent transition-colors ${property.note ? "bg-amber-50/50 text-charcoal-800" : "bg-charcoal-50 border-dashed border-charcoal-200 text-charcoal-400 italic hover:border-brand-300 hover:bg-brand-50"}`}
-                                        >
-                                            {property.note || "Click to add a private note about this property..."}
-                                        </div>
+                                        (() => {
+                                            const displayNote = vaultNotes[property.id] ?? property.note;
+                                            return (
+                                                <div
+                                                    onClick={() => setEditingNote(property.id)}
+                                                    className={`text-sm p-3 rounded-sm cursor-pointer border border-transparent transition-colors ${displayNote ? "bg-amber-50/50 text-charcoal-800" : "bg-charcoal-50 border-dashed border-charcoal-200 text-charcoal-400 italic hover:border-brand-300 hover:bg-brand-50"}`}
+                                                >
+                                                    {displayNote || "Click to add a private note about this property..."}
+                                                </div>
+                                            );
+                                        })()
                                     )}
                                 </div>
                             </div>
