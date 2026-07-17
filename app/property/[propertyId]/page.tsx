@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import VerificationPanel from "@/components/VerificationPanel";
 import CheckoutModal from "@/components/CheckoutModal";
-import { api, clientApi, messageApi, propertiesApi } from "@/lib/api";
+import { api, clientApi, messageApi, propertiesApi, verificationApi } from "@/lib/api";
 
 interface PropertyImage {
     url: string;
@@ -65,6 +65,11 @@ export default function PropertyPage({ params }: { params: Promise<{ propertyId:
     const viewingFee = 200;
     const [saved, setSaved] = useState(false);
     const [viewerRole, setViewerRole] = useState<string | null>(null);
+    const [verification, setVerification] = useState<{
+        certificateUrl?: string | null;
+        checks?: { checkType?: string; checkedAt?: string | null; status?: string }[];
+        status?: string;
+    } | null>(null);
 
     useEffect(() => {
         if (Number.isNaN(numericId)) {
@@ -101,6 +106,17 @@ export default function PropertyPage({ params }: { params: Promise<{ propertyId:
                 return Promise.resolve();
             })
             .catch(() => setViewerRole(null));
+
+        // Public endpoint (no authenticate) — returns 200 to logged-out
+        // visitors, so this never triggers fetchJson's login redirect.
+        verificationApi
+            .get(numericId)
+            .then((data: unknown) => setVerification(data as typeof verification))
+            .catch(() => {
+                // No verification row (e.g. a pre-auto-seed property) — the
+                // verificationChecks fallback below renders from isVerified.
+                setVerification(null);
+            });
     }, [numericId]);
 
     const galleryImages = property?.images?.length
@@ -150,13 +166,28 @@ export default function PropertyPage({ params }: { params: Promise<{ propertyId:
         }
     };
 
-    const verificationChecks = property
-        ? {
-            ownership: { verified: property.isVerified },
-            gpsLocation: { verified: property.isVerified },
-            landCommission: { verified: property.isVerified },
-        }
-        : null;
+    const verificationChecks = (() => {
+        const fallback = property
+            ? {
+                landCommission: { verified: property.isVerified },
+                gpsLocation: { verified: property.isVerified },
+                ownership: { verified: property.isVerified },
+            }
+            : null;
+        if (!verification) return fallback;
+        const find = (type: string) =>
+            verification.checks?.find((c) => c.checkType === type);
+        const dateOf = (c?: { checkedAt?: string | null }) =>
+            c?.checkedAt ? new Date(c.checkedAt).toLocaleDateString() : undefined;
+        const ownership = find("OwnershipDocument");
+        const gps = find("GPSLocation");
+        const land = find("LandCommissionSearch");
+        return {
+            landCommission: { date: dateOf(land), verified: land?.status === "Passed" },
+            gpsLocation: { date: dateOf(gps), verified: gps?.status === "Passed" },
+            ownership: { date: dateOf(ownership), verified: ownership?.status === "Passed" },
+        };
+    })();
 
     if (loading) {
         return (
@@ -386,7 +417,15 @@ export default function PropertyPage({ params }: { params: Promise<{ propertyId:
 
                         {/* Verification */}
                         {verificationChecks && (
-                            <VerificationPanel referenceCode={property.referenceCode} checks={verificationChecks} />
+                            <VerificationPanel
+                                referenceCode={property.referenceCode}
+                                checks={verificationChecks}
+                                onDownloadCert={
+                                    verification?.status === "Verified" && verification?.certificateUrl
+                                        ? () => window.open(verification.certificateUrl as string, "_blank")
+                                        : undefined
+                                }
+                            />
                         )}
                     </div>
 
