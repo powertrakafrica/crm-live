@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Briefcase, Heart, CheckCircle2, Clock, Edit3, Save, MessageSquare, UserCircle2 } from "lucide-react";
+import Link from "next/link";
+import { Briefcase, Heart, CheckCircle2, Clock, Edit3, Save, MessageSquare, UserCircle2, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import PropertyCard from "@/components/PropertyCard";
@@ -65,6 +66,9 @@ export function ClientDashboard() {
             <div>
                 <h2 className="text-2xl font-heading font-bold text-charcoal-950 tracking-tight">Your Dashboard</h2>
                 <p className="text-charcoal-500 font-medium mt-1">Track your active services and manage your saved properties.</p>
+                <Link href="/agent-application" className="inline-flex items-center gap-1 text-sm font-bold text-brand-600 hover:text-brand-700 mt-2">
+                    <ShieldCheck className="h-4 w-4" /> Become an Agent
+                </Link>
             </div>
 
             <div className="grid grid-cols-1 xl:grid-cols-12 gap-8">

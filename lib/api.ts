@@ -323,6 +323,9 @@ export const profileApi = {
     uploadAvatar: (body: Record<string, unknown>) => fetchJson<unknown>("/profile/avatar", { method: "POST", body: JSON.stringify(body) }),
     uploadGhanaCard: (body: Record<string, unknown>) => fetchJson<unknown>("/profile/ghana-card", { method: "POST", body: JSON.stringify(body) }),
     uploadPartnershipAgreement: (body: Record<string, unknown>) => fetchJson<unknown>("/profile/partnership-agreement", { method: "POST", body: JSON.stringify(body) }),
+    agentApplication: (body: Record<string, unknown>) =>
+        fetchJson<unknown>("/profile/agent-application", { method: "POST", body: JSON.stringify(body) }),
+    getAgentApplication: () => fetchJson<unknown>("/profile/agent-application"),
     agentProfile: (agentId?: number) => {
         const path = agentId ? `/profile/agent/${agentId}` : "/profile/agent";
         return fetchJson<unknown>(path);
