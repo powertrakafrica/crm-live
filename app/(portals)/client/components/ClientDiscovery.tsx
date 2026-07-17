@@ -56,7 +56,7 @@ export function ClientDiscovery() {
     useEffect(() => {
         propertiesApi.list()
             .then((data: unknown) => {
-                setProperties((data as unknown[])?.map(mapProperty) ?? []);
+                setProperties(((data as { data?: unknown[] } | null)?.data ?? []).map(mapProperty));
             })
             .catch((err: unknown) => setError(err instanceof Error ? err.message : "Failed to load properties"))
             .finally(() => setLoading(false));

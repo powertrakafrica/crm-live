@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import VerificationPanel from "@/components/VerificationPanel";
 import CheckoutModal from "@/components/CheckoutModal";
-import { feeApi, messageApi, propertiesApi } from "@/lib/api";
+import { messageApi, propertiesApi } from "@/lib/api";
 
 interface PropertyImage {
     url: string;
@@ -62,7 +62,7 @@ export default function PropertyPage({ params }: { params: Promise<{ propertyId:
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
     const [checkoutOpen, setCheckoutOpen] = useState(false);
-    const [viewingFee, setViewingFee] = useState<number>(150);
+    const viewingFee = 200;
     const [saved, setSaved] = useState(false);
 
     useEffect(() => {
@@ -74,19 +74,13 @@ export default function PropertyPage({ params }: { params: Promise<{ propertyId:
         setLoading(true);
         setError("");
 
-        Promise.all([
-            propertiesApi.get(numericId),
-            feeApi.list().catch(() => []),
-        ])
-            .then(([data, rules]: [any, any[]]) => {
+        propertiesApi
+            .get(numericId)
+            .then((data: unknown) => {
                 setProperty(data as PropertyDetail);
-                const vf = rules.find((r: any) => r.feeType === "ViewingFee" && r.isActive);
-                if (vf && typeof vf.amount === "number") {
-                    setViewingFee(vf.amount / 100);
-                }
             })
-            .catch((err: any) => {
-                setError(err.message || "Failed to load property");
+            .catch((err: unknown) => {
+                setError(err instanceof Error ? err.message : "Failed to load property");
             })
             .finally(() => setLoading(false));
     }, [numericId]);
@@ -160,7 +154,7 @@ export default function PropertyPage({ params }: { params: Promise<{ propertyId:
                 isOpen={checkoutOpen}
                 onClose={() => setCheckoutOpen(false)}
                 amount={viewingFee}
-                purpose={`Booking Viewing: ${property.title}`}
+                purpose="ViewingFee"
                 reference={property.referenceCode}
                 propertyId={property.id}
             />

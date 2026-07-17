@@ -66,7 +66,7 @@ export function SavedSearches({ currentQuery, onApplyResults }: SavedSearchesPro
     const viewMatches = async (s: SavedSearch) => {
         try {
             const data = await propertiesApi.list(s.queryJson);
-            onApplyResults((data as unknown[]) ?? []);
+            onApplyResults(((data as { data?: unknown[] } | null)?.data) ?? []);
         } catch (err: unknown) {
             setError(err instanceof Error ? err.message : "Failed to load matches");
         }
