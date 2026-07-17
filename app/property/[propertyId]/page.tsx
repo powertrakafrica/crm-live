@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import VerificationPanel from "@/components/VerificationPanel";
 import CheckoutModal from "@/components/CheckoutModal";
-import { messageApi, propertiesApi } from "@/lib/api";
+import { api, clientApi, messageApi, propertiesApi } from "@/lib/api";
 
 interface PropertyImage {
     url: string;
@@ -64,6 +64,7 @@ export default function PropertyPage({ params }: { params: Promise<{ propertyId:
     const [checkoutOpen, setCheckoutOpen] = useState(false);
     const viewingFee = 200;
     const [saved, setSaved] = useState(false);
+    const [viewerRole, setViewerRole] = useState<string | null>(null);
 
     useEffect(() => {
         if (Number.isNaN(numericId)) {
@@ -83,6 +84,23 @@ export default function PropertyPage({ params }: { params: Promise<{ propertyId:
                 setError(err instanceof Error ? err.message : "Failed to load property");
             })
             .finally(() => setLoading(false));
+
+        // Probe the viewer (non-redirecting — api.me() catches 401 itself and
+        // never calls clearAuthAndRedirect). Only a logged-in client can save.
+        api.me()
+            .then((user: unknown) => {
+                const u = user as { role?: string } | null;
+                if (u?.role === "client") {
+                    setViewerRole("client");
+                    return clientApi.savedProperties.list().then((list: unknown) => {
+                        const arr = (list as { id?: number }[]) ?? [];
+                        setSaved(arr.some((p) => p.id === numericId));
+                    });
+                }
+                setViewerRole(null);
+                return Promise.resolve();
+            })
+            .catch(() => setViewerRole(null));
     }, [numericId]);
 
     const galleryImages = property?.images?.length
@@ -116,6 +134,20 @@ export default function PropertyPage({ params }: { params: Promise<{ propertyId:
             // Non-blocking
         }
         window.open(`https://wa.me/${ownerPhone.replace(/\+/g, "")}?text=${whatsappMsg}`, "_blank");
+    };
+
+    const toggleSave = async () => {
+        try {
+            if (saved) {
+                await clientApi.savedProperties.remove(numericId);
+                setSaved(false);
+            } else {
+                await clientApi.savedProperties.add(numericId);
+                setSaved(true);
+            }
+        } catch {
+            // best-effort: leave local state so the user can retry
+        }
     };
 
     const verificationChecks = property
@@ -178,17 +210,27 @@ export default function PropertyPage({ params }: { params: Promise<{ propertyId:
                         <Share className="h-4 w-4" />
                         <span className="hidden sm:inline">Share</span>
                     </button>
-                    <button
-                        onClick={() => setSaved(!saved)}
-                        className={`flex items-center gap-2 text-sm font-medium transition-colors border rounded-lg px-3 py-2 ${
-                            saved
-                                ? "border-red-200 text-red-600 bg-red-50"
-                                : "border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900"
-                        }`}
-                    >
-                        <Heart className={`h-4 w-4 ${saved ? "fill-red-600" : ""}`} />
-                        <span className="hidden sm:inline">{saved ? "Saved" : "Save"}</span>
-                    </button>
+                    {viewerRole === "client" ? (
+                        <button
+                            onClick={toggleSave}
+                            className={`flex items-center gap-2 text-sm font-medium transition-colors border rounded-lg px-3 py-2 ${
+                                saved
+                                    ? "border-red-200 text-red-600 bg-red-50"
+                                    : "border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                            }`}
+                        >
+                            <Heart className={`h-4 w-4 ${saved ? "fill-red-600" : ""}`} />
+                            <span className="hidden sm:inline">{saved ? "Saved" : "Save"}</span>
+                        </button>
+                    ) : (
+                        <Link
+                            href="/auth/login"
+                            className="flex items-center gap-2 text-sm font-medium text-slate-600 hover:text-slate-900 transition-colors border border-slate-200 rounded-lg px-3 py-2 hover:bg-slate-50"
+                        >
+                            <Heart className="h-4 w-4" />
+                            <span className="hidden sm:inline">Log in to save</span>
+                        </Link>
+                    )}
                 </div>
             </div>
 
