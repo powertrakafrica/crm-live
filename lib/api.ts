@@ -234,6 +234,7 @@ export const agentApi = {
     leads: () => fetchJson<unknown[]>("/agent/leads"),
     earnings: () => fetchJson<unknown>("/agent/earnings"),
     listings: () => fetchJson<unknown[]>("/agent/listings"),
+    myListings: () => fetchJson<unknown[]>("/agent/my-listings"),
     verifications: () => fetchJson<unknown[]>("/agent/verifications"),
     tickets: () => fetchJson<unknown[]>("/agent/tickets"),
 };
