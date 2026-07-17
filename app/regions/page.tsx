@@ -1,15 +1,19 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { MapPin, ChevronRight, Loader2 } from "lucide-react";
 import InteractiveMap from "@/components/InteractiveMap";
 import { Card } from "@/components/ui/Card";
 import { propertiesApi } from "@/lib/api";
-import { REGIONS } from "@/lib/data";
+import { useGeoRegions } from "@/lib/hooks/geo";
 
-function normalizeRegionId(raw: string): string {
+interface PropertyListResponse {
+  pagination?: { total: number };
+}
+
+function normalizeName(raw: string): string {
   return raw
     .toLowerCase()
     .replace(/\s+/g, "-")
@@ -20,36 +24,41 @@ function normalizeRegionId(raw: string): string {
 
 export default function RegionsPage() {
   const router = useRouter();
-  const [regionCounts, setRegionCounts] = useState<Record<string, number>>({});
-  const [loading, setLoading] = useState(true);
-  const [hoveredRegion, setHoveredRegion] = useState<string | null>(null);
+  const { data: regions, loading: regionsLoading, error, retry } = useGeoRegions();
+  const [regionCounts, setRegionCounts] = useState<Record<number, number>>({});
+  const [countsLoading, setCountsLoading] = useState(true);
+  const [hoveredRegion, setHoveredRegion] = useState<number | null>(null);
+
+  // name → numeric id, for resolving the map's region-name clicks.
+  const regionByName = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const r of regions) m.set(normalizeName(r.name), r.id);
+    return m;
+  }, [regions]);
 
   useEffect(() => {
+    if (regions.length === 0) return;
     Promise.all(
-      REGIONS.map((r) =>
+      regions.map((r) =>
         propertiesApi
-          .list({ regionId: r.id, status: "Live", limit: "1" })
-          .then(
-            (res: any) =>
-              [r.id, res.pagination?.total ?? 0] as [string, number],
-          )
-          .catch(() => [r.id, 0] as [string, number]),
+          .list({ regionId: String(r.id), status: "Live", limit: "1" })
+          .then((res: unknown) => {
+            const r2 = res as PropertyListResponse;
+            return [r.id, r2.pagination?.total ?? 0] as [number, number];
+          })
+          .catch(() => [r.id, 0] as [number, number]),
       ),
     ).then((results) => {
-      const map: Record<string, number> = {};
+      const map: Record<number, number> = {};
       for (const [id, count] of results) map[id] = count;
       setRegionCounts(map);
-      setLoading(false);
+      setCountsLoading(false);
     });
-  }, []);
+  }, [regions]);
 
   const handleMapRegionSelect = (rawCode: string) => {
-    const normalized = normalizeRegionId(rawCode);
-    const matched = REGIONS.find(
-      (r) => r.id === normalized || normalizeRegionId(r.name) === normalized,
-    );
-    const regionId = matched?.id ?? normalized;
-    router.push(`/region/${regionId}`);
+    const id = regionByName.get(normalizeName(rawCode));
+    if (id != null) router.push(`/region/${id}`);
   };
 
   return (
@@ -90,12 +99,22 @@ export default function RegionsPage() {
                   Select a Region
                 </h2>
                 <p className="text-sm text-slate-500 mt-0.5">
-                  {REGIONS.length} regions across Ghana
+                  {regions.length} regions across Ghana
                 </p>
               </div>
 
               <div className="flex-1 overflow-y-auto p-3 space-y-2">
-                {loading ? (
+                {error ? (
+                  <div className="flex flex-col items-center justify-center py-12 text-center">
+                    <p className="text-sm text-slate-500 font-medium mb-3">{error}</p>
+                    <button
+                      onClick={retry}
+                      className="text-sm font-bold text-brand-600 hover:text-brand-700"
+                    >
+                      Try again
+                    </button>
+                  </div>
+                ) : regionsLoading || countsLoading ? (
                   <div className="flex flex-col items-center justify-center py-12">
                     <Loader2 className="h-6 w-6 animate-spin text-brand-600 mb-2" />
                     <p className="text-sm text-slate-500 font-medium">
@@ -103,7 +122,7 @@ export default function RegionsPage() {
                     </p>
                   </div>
                 ) : (
-                  REGIONS.map((region) => {
+                  regions.map((region) => {
                     const count = regionCounts[region.id] ?? 0;
                     const isHovered = hoveredRegion === region.id;
                     return (
@@ -142,12 +161,6 @@ export default function RegionsPage() {
                                 >
                                   {region.name}
                                 </h3>
-                                <p className="text-xs text-slate-500 mt-0.5">
-                                  Capital:{" "}
-                                  <span className="font-semibold text-slate-700">
-                                    {region.capitalCity}
-                                  </span>
-                                </p>
                               </div>
                             </div>
                             <ChevronRight
@@ -159,9 +172,6 @@ export default function RegionsPage() {
                             />
                           </div>
                           <div className="flex items-center gap-2 mt-3">
-                            <span className="bg-slate-100 text-slate-700 font-bold px-2 py-0.5 rounded-md text-[10px] uppercase tracking-wider">
-                              {region.constituencyCount} constituencies
-                            </span>
                             <span className="bg-brand-50 text-brand-700 font-bold px-2 py-0.5 rounded-md text-[10px] uppercase tracking-wider">
                               {count.toLocaleString()} listings
                             </span>
