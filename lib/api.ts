@@ -280,6 +280,8 @@ export const uploadApi = {
 // ─── Payments ────────────────────────────────────────
 
 export const paymentApi = {
+    feePreview: (body: Record<string, unknown>) =>
+        fetchJson<{ amount: number; currency: string }>("/payments/fee-preview", { method: "POST", body: JSON.stringify(body) }),
     initiate: (body: Record<string, unknown>) =>
         fetchJson<{ payment: unknown; checkoutUrl?: string }>("/payments/initiate", { method: "POST", body: JSON.stringify(body) }),
     history: () => fetchJson<unknown[]>("/payments/history"),

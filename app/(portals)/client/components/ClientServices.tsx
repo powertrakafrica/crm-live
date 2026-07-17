@@ -58,11 +58,8 @@ export function ClientServices() {
         guided_viewing: "ViewingFee",
     };
 
-    const serviceToAmount: Record<string, number> = {
-        property_search: 250_00,
-        verification_req: 150_00,
-        guided_viewing: 200_00,
-    };
+    // (serviceToAmount removed — the backend resolves the amount; the display
+    //  uses currentService.price, which matches the backend FIXED_SERVICE_FEES.)
 
     const networkToMethod: Record<string, string> = {
         "MTN MoMo": "MTN_MoMo",
@@ -76,7 +73,6 @@ export function ClientServices() {
         setPaymentError("");
         try {
             const payload = {
-                amount: serviceToAmount[currentService.id],
                 purpose: serviceToPurpose[currentService.id],
                 provider: paymentMethod === "momo" ? "Hubtel" : "Paystack",
                 paymentMethod: paymentMethod === "momo" ? networkToMethod[network] : "Card",
@@ -107,9 +103,9 @@ export function ClientServices() {
                 setRequirements("");
                 setPaymentResult(null);
             }, 6000);
-        } catch (err: any) {
+        } catch (err: unknown) {
             setIsProcessing(false);
-            setPaymentError(err.message || "Payment failed. Please try again.");
+            setPaymentError(err instanceof Error ? err.message : "Payment failed. Please try again.");
         }
     };
 

@@ -63,7 +63,6 @@ export default function CheckoutModal({
 
         try {
             const res = await paymentApi.initiate({
-                amount: Math.round(amount * 100),
                 currency: 'GHS',
                 purpose,
                 propertyId,
@@ -79,9 +78,9 @@ export default function CheckoutModal({
                 return;
             }
             setStatus('prompt');
-        } catch (err: any) {
+        } catch (err: unknown) {
             setStatus('error');
-            setError(err.message || 'Payment initiation failed. Please try again.');
+            setError(err instanceof Error ? err.message : 'Payment initiation failed. Please try again.');
         }
     };
 

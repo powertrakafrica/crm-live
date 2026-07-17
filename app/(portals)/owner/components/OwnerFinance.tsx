@@ -26,6 +26,8 @@ export function OwnerFinance() {
     const [selectedPropertyId, setSelectedPropertyId] = useState<string>("");
     const [boostLoading, setBoostLoading] = useState(false);
     const [boostMessage, setBoostMessage] = useState("");
+    const [boostFee, setBoostFee] = useState<number | null>(null);
+    const [boostFeeError, setBoostFeeError] = useState("");
 
     useEffect(() => {
         ownerApi.payments()
@@ -41,6 +43,24 @@ export function OwnerFinance() {
             })
             .catch(() => setOwnerProperties([]));
     }, []);
+
+    useEffect(() => {
+        if (!selectedPropertyId) {
+            setBoostFee(null);
+            setBoostFeeError("");
+            return;
+        }
+        paymentApi
+            .feePreview({ purpose: "MarketingContribution", propertyId: Number(selectedPropertyId) })
+            .then((data) => {
+                setBoostFee(data.amount);
+                setBoostFeeError("");
+            })
+            .catch((err: unknown) => {
+                setBoostFee(null);
+                setBoostFeeError(err instanceof Error ? err.message : "Boost pricing not configured");
+            });
+    }, [selectedPropertyId]);
 
     return (
         <div className="space-y-6">
@@ -84,7 +104,9 @@ export function OwnerFinance() {
                                 )}
                                 <div className="flex justify-between items-center text-sm font-bold mt-2 pt-2 border-t border-white/20">
                                     <span className="text-brand-100">7-Day Local Area Boost</span>
-                                    <span className="text-white bg-brand-900/50 px-2 py-1 rounded-sm">GH₵ 200</span>
+                                    <span className="text-white bg-brand-900/50 px-2 py-1 rounded-sm">
+                                        {boostFee !== null ? `GH₵ ${(boostFee / 100).toLocaleString()}` : boostFeeError || "—"}
+                                    </span>
                                 </div>
                             </div>
 
@@ -96,16 +118,15 @@ export function OwnerFinance() {
                                     setBoostMessage("");
                                     try {
                                         await paymentApi.initiate({
-                                            amount: 20000,
                                             currency: "GHS",
-                                            purpose: "ListingBoost",
+                                            purpose: "MarketingContribution",
                                             propertyId: Number(selectedPropertyId),
                                             provider: "Hubtel",
                                             paymentMethod: "MTN_MoMo",
                                         });
                                         setBoostMessage("Boost payment initiated. Check your phone to approve.");
-                                    } catch (err: any) {
-                                        setBoostMessage(err.message || "Boost payment failed.");
+                                    } catch (err: unknown) {
+                                        setBoostMessage(err instanceof Error ? err.message : "Boost payment failed.");
                                     } finally {
                                         setBoostLoading(false);
                                     }
