@@ -76,11 +76,24 @@ export function AgentListings() {
     period: "month",
   });
 
-  useEffect(() => {
-    agentApi
-      .listings()
-      .then((data: any) => {
-        const mapped = (data ?? []).map((p: any) => ({
+  const loadListings = () => {
+    // No synchronous setState here: on mount `loading` starts true via the
+    // useState initializer; on refresh (called from an event handler) we just
+    // re-fetch without a spinner. All setState is in async callbacks below, so
+    // this avoids react-hooks/set-state-in-effect (the geo.ts convention).
+    Promise.all([
+      agentApi.listings().catch(() => [] as unknown[]),
+      agentApi.myListings().catch(() => [] as unknown[]),
+    ])
+      .then(([managed, mine]) => {
+        const merged = [...(managed ?? []), ...(mine ?? [])];
+        const seen = new Set<number>();
+        const deduped = merged.filter((p: any) => {
+          if (seen.has(p.id)) return false;
+          seen.add(p.id);
+          return true;
+        });
+        const mapped = deduped.map((p: any) => ({
           id: p.id,
           title: p.title,
           ownerName: p.ownerId ? `Owner #${p.ownerId}` : "Unknown",
@@ -115,9 +128,14 @@ export function AgentListings() {
           images: p.images,
         }));
         setListings(mapped);
+        setError("");
       })
       .catch((err: any) => setError(err.message || "Failed to load listings"))
       .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    loadListings();
   }, []);
 
   const handleStatusToggle = (id: number, currentStatus: string) => {
