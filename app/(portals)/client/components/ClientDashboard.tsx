@@ -45,7 +45,7 @@ export function ClientDashboard() {
             .catch(() => setRequests([]))
             .finally(() => setLoading(false));
 
-        clientApi.savedProperties()
+        clientApi.savedProperties.list()
             .then((data: any[]) => {
                 const mapped = (data ?? []).map((item: any) => ({
                     ...item,

@@ -244,7 +244,15 @@ export const agentApi = {
 // ─── Client ──────────────────────────────────────────
 
 export const clientApi = {
-    savedProperties: () => fetchJson<unknown[]>("/client/saved-properties"),
+    savedProperties: {
+        add: (propertyId: number) =>
+            fetchJson<unknown>("/client/saved-properties", { method: "POST", body: JSON.stringify({ propertyId }) }),
+        list: () => fetchJson<unknown[]>("/client/saved-properties"),
+        remove: (propertyId: number) =>
+            fetchJson<{ message: string }>(`/client/saved-properties/${propertyId}`, { method: "DELETE" }),
+        updateNote: (propertyId: number, note: string | null) =>
+            fetchJson<unknown>(`/client/saved-properties/${propertyId}`, { method: "PATCH", body: JSON.stringify({ note }) }),
+    },
     serviceRequests: () => fetchJson<unknown>("/client/service-requests"),
     payments: () => fetchJson<unknown[]>("/client/payments"),
     savedSearches: {
