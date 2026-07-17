@@ -382,6 +382,7 @@ export type Message = {
     body: string;
     createdAt: string;
     direction: "inbound" | "outbound";
+    fromMe: boolean;
     id: number;
     provider: string;
     recipientId: number | null;
@@ -395,7 +396,7 @@ export type Thread = {
     createdAt: string;
     id: number;
     isActive: boolean;
-    lastMessage: { body: string | null; createdAt: string; direction: string; id: number; senderId: number | null; threadId: number } | null;
+    lastMessage: { body: string | null; createdAt: string; direction: "inbound" | "outbound"; id: number; senderId: number | null; threadId: number } | null;
     lastMessageAt: string | null;
     participant1Id: number;
     participant1Name: string | null;

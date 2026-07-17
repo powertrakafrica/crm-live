@@ -332,7 +332,7 @@ export function ClientCommunications() {
                                         {threads.find((t) => t.id === selectedThreadId)?.contactName ?? "Conversation"}
                                     </h4>
                                     <button
-                                        onClick={() => { setSelectedThreadId(null); setThreadMessages([]); }}
+                                        onClick={() => { setSelectedThreadId(null); setThreadMessages([]); setComposerBody(""); }}
                                         className="text-xs text-charcoal-500 hover:text-charcoal-900 font-bold"
                                     >
                                         Back to list
@@ -349,11 +349,11 @@ export function ClientCommunications() {
                                         {threadMessages.map((m) => (
                                             <div
                                                 key={m.id}
-                                                className={`flex ${m.direction === "outbound" ? "justify-end" : "justify-start"}`}
+                                                className={`flex ${m.fromMe ? "justify-end" : "justify-start"}`}
                                             >
                                                 <div
                                                     className={`max-w-[75%] rounded-sm px-3 py-2 text-sm ${
-                                                        m.direction === "outbound"
+                                                        m.fromMe
                                                             ? "bg-brand-600 text-white"
                                                             : "bg-charcoal-100 text-charcoal-900"
                                                     }`}

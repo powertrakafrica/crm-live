@@ -76,7 +76,7 @@ export function OwnerMessages() {
                                 {threads.find((t) => t.id === selectedThreadId)?.contactName ?? "Conversation"}
                             </h4>
                             <button
-                                onClick={() => { setSelectedThreadId(null); setThreadMessages([]); }}
+                                onClick={() => { setSelectedThreadId(null); setThreadMessages([]); setComposerBody(""); }}
                                 className="text-xs text-slate-500 hover:text-slate-900 font-bold"
                             >
                                 Back to list
@@ -91,8 +91,8 @@ export function OwnerMessages() {
                         ) : (
                             <div className="space-y-2 max-h-80 overflow-y-auto">
                                 {threadMessages.map((m) => (
-                                    <div key={m.id} className={`flex ${m.direction === "outbound" ? "justify-end" : "justify-start"}`}>
-                                        <div className={`max-w-[75%] rounded-lg px-3 py-2 text-sm ${m.direction === "outbound" ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-900"}`}>
+                                    <div key={m.id} className={`flex ${m.fromMe ? "justify-end" : "justify-start"}`}>
+                                        <div className={`max-w-[75%] rounded-lg px-3 py-2 text-sm ${m.fromMe ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-900"}`}>
                                             {m.body}
                                         </div>
                                     </div>
