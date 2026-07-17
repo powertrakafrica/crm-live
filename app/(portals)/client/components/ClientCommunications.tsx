@@ -1,21 +1,11 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { MessageSquare, Calendar, Star, Flag, CheckCircle2, ChevronDown, Phone, ExternalLink, AlertTriangle, X, User, Loader2 } from "lucide-react";
+import { MessageSquare, Calendar, Star, Flag, CheckCircle2, ChevronDown, AlertTriangle, X, User, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
-import { messageApi, propertiesApi, bookingApi, ratingApi, reportApi, type BookingSlot } from "@/lib/api";
-
-interface Thread {
-    id: number;
-    contactName: string;
-    propertyTitle: string | null;
-    lastMessage: { body: string | null; createdAt: string } | null;
-    lastMessageAt: string | null;
-    unread: number;
-    propertyId: number | null;
-}
+import { messageApi, propertiesApi, bookingApi, ratingApi, reportApi, type BookingSlot, type Message, type Thread } from "@/lib/api";
 
 interface Property {
     id: number;
@@ -57,6 +47,11 @@ export function ClientCommunications() {
     // Messages state
     const [threads, setThreads] = useState<Thread[]>([]);
     const [threadsLoading, setThreadsLoading] = useState(false);
+    const [selectedThreadId, setSelectedThreadId] = useState<number | null>(null);
+    const [threadMessages, setThreadMessages] = useState<Message[]>([]);
+    const [messagesLoading, setMessagesLoading] = useState(false);
+    const [composerBody, setComposerBody] = useState("");
+    const [sending, setSending] = useState(false);
 
     // Calendar state
     const [properties, setProperties] = useState<Property[]>([]);
@@ -90,9 +85,9 @@ export function ClientCommunications() {
     useEffect(() => {
         if (activeSection === "messages") {
             setThreadsLoading(true);
-            (messageApi.threads() as Promise<Thread[]>)
+            messageApi.threads()
                 .then((data) => setThreads(data))
-                .catch((err: any) => setError(err.message || "Failed to load messages"))
+                .catch((err: unknown) => setError(err instanceof Error ? err.message : "Failed to load messages"))
                 .finally(() => setThreadsLoading(false));
         }
     }, [activeSection]);
@@ -156,6 +151,33 @@ export function ClientCommunications() {
             setError(err instanceof Error ? err.message : "Booking failed");
         } finally {
             setBookingLoading(false);
+        }
+    };
+
+    const openThread = (threadId: number) => {
+        setSelectedThreadId(threadId);
+        setMessagesLoading(true);
+        messageApi.threadMessages(threadId)
+            .then((data) => setThreadMessages(data))
+            .catch((err: unknown) => setError(err instanceof Error ? err.message : "Failed to load thread"))
+            .finally(() => setMessagesLoading(false));
+    };
+
+    const handleSend = async () => {
+        if (!selectedThreadId || !composerBody.trim()) return;
+        setSending(true);
+        try {
+            const sent = await messageApi.send(selectedThreadId, composerBody.trim());
+            setThreadMessages((m) => [...m, sent]);
+            setComposerBody("");
+            // Refresh the thread list so lastMessage/unread update.
+            messageApi.threads()
+                .then((data) => setThreads(data))
+                .catch(() => {});
+        } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : "Send failed");
+        } finally {
+            setSending(false);
         }
     };
 
@@ -252,6 +274,7 @@ export function ClientCommunications() {
 
             {/* Messages */}
             {activeSection === "messages" && (
+                <>
                 <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
                     {threadsLoading ? (
                         <div className="flex items-center justify-center h-40">
@@ -287,26 +310,80 @@ export function ClientCommunications() {
                                         </div>
                                     </div>
                                     <div className="mt-4 flex items-center gap-3 pt-3 border-t border-charcoal-100">
-                                        <a
-                                            href={`https://wa.me/?text=Hello, I am interested in a property. Can we talk?`}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="flex items-center gap-2 h-9 px-4 bg-green-500 hover:bg-green-600 text-white text-xs font-bold rounded-sm transition-colors shadow-sm"
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="h-9 text-xs text-charcoal-600 bg-white border-charcoal-200 hover:bg-charcoal-50"
+                                            onClick={() => openThread(thread.id)}
                                         >
-                                            <Phone className="h-3.5 w-3.5" />
-                                            Open in WhatsApp
-                                        </a>
-                                        {thread.propertyId && (
-                                            <Button variant="outline" size="sm" className="h-9 text-xs text-charcoal-600 bg-white border-charcoal-200 hover:bg-charcoal-50">
-                                                <ExternalLink className="h-3.5 w-3.5 mr-1.5" /> View Property
-                                            </Button>
-                                        )}
+                                            <MessageSquare className="h-3.5 w-3.5 mr-1.5" /> Open thread
+                                        </Button>
                                     </div>
                                 </CardContent>
                             </Card>
                         ))
                     )}
                 </div>
+                    {selectedThreadId && (
+                        <Card className="border-charcoal-200 shadow-sm bg-white">
+                            <CardContent className="p-5 space-y-4">
+                                <div className="flex items-center justify-between border-b border-charcoal-100 pb-3">
+                                    <h4 className="font-bold text-charcoal-900 text-sm">
+                                        {threads.find((t) => t.id === selectedThreadId)?.contactName ?? "Conversation"}
+                                    </h4>
+                                    <button
+                                        onClick={() => { setSelectedThreadId(null); setThreadMessages([]); }}
+                                        className="text-xs text-charcoal-500 hover:text-charcoal-900 font-bold"
+                                    >
+                                        Back to list
+                                    </button>
+                                </div>
+                                {messagesLoading ? (
+                                    <div className="flex items-center justify-center h-32">
+                                        <Loader2 className="h-5 w-5 animate-spin text-brand-600" />
+                                    </div>
+                                ) : threadMessages.length === 0 ? (
+                                    <p className="text-sm text-charcoal-500 text-center py-8">No messages yet. Say hello.</p>
+                                ) : (
+                                    <div className="space-y-2 max-h-80 overflow-y-auto">
+                                        {threadMessages.map((m) => (
+                                            <div
+                                                key={m.id}
+                                                className={`flex ${m.direction === "outbound" ? "justify-end" : "justify-start"}`}
+                                            >
+                                                <div
+                                                    className={`max-w-[75%] rounded-sm px-3 py-2 text-sm ${
+                                                        m.direction === "outbound"
+                                                            ? "bg-brand-600 text-white"
+                                                            : "bg-charcoal-100 text-charcoal-900"
+                                                    }`}
+                                                >
+                                                    {m.body}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                                <div className="flex gap-2 pt-2 border-t border-charcoal-100">
+                                    <textarea
+                                        value={composerBody}
+                                        onChange={(e) => setComposerBody(e.target.value)}
+                                        rows={2}
+                                        placeholder="Type a message…"
+                                        className="flex-1 border border-charcoal-200 rounded-sm px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500"
+                                    />
+                                    <Button
+                                        onClick={handleSend}
+                                        disabled={!composerBody.trim() || sending}
+                                        className="h-9 px-4 bg-brand-600 hover:bg-brand-700 text-white font-bold text-xs shrink-0 disabled:opacity-50"
+                                    >
+                                        {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Send"}
+                                    </Button>
+                                </div>
+                            </CardContent>
+                        </Card>
+                    )}
+                </>
             )}
 
             {/* Calendar */}
