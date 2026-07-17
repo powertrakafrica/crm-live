@@ -198,6 +198,7 @@ export function AgentListings() {
     });
     setImageFiles([]);
     setPublishError("");
+    setPublishing(false);
     setEditingListing(null);
     setIsWizardOpen(true);
   };
@@ -331,6 +332,7 @@ export function AgentListings() {
       ? amenities.split(",").map((a) => a.trim()).filter(Boolean)
       : [];
 
+    let partialFail = false;
     setPublishing(true);
     try {
       const created = (await propertiesApi.create({
@@ -367,9 +369,13 @@ export function AgentListings() {
         }
       }
       if (imageFiles.length > 0 && uploaded < imageFiles.length) {
+        partialFail = true;
         setPublishError(
           `Listing created, but only ${uploaded} of ${imageFiles.length} images uploaded.`,
         );
+        setImageFiles([]);
+        loadListings();
+        return; // keep wizard open so the message is visible; user closes via X
       }
       setImageFiles([]);
       setEditingListing(null);
@@ -380,7 +386,7 @@ export function AgentListings() {
         err instanceof Error ? err.message : "Failed to publish listing.",
       );
     } finally {
-      setPublishing(false);
+      if (!partialFail) setPublishing(false);
     }
   };
 
