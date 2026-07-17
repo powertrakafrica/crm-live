@@ -6,8 +6,9 @@ import { ArrowLeft, MapPinned, Loader2 } from "lucide-react";
 import InteractiveMap from "@/components/InteractiveMap";
 import { Card } from "@/components/ui/Card";
 import PropertyCard from "@/components/PropertyCard";
-import { propertiesApi } from "@/lib/api";
-import { REGIONS, getRegionById, getConstituenciesByRegion } from "@/lib/data";
+import { geoApi, propertiesApi } from "@/lib/api";
+import { useConstituencies } from "@/lib/hooks/geo";
+import type { GeoConstituency, GeoRegionDetail } from "@/lib/coverage";
 
 interface FeaturedProperty {
     id: number;
@@ -24,27 +25,46 @@ interface FeaturedProperty {
     gpsLongitude?: string | null;
 }
 
+interface PropertyListResponse {
+    data?: FeaturedProperty[];
+    pagination?: { total: number };
+}
+
 export default function RegionPage({ params }: { params: Promise<{ regionId: string }> }) {
     const resolvedParams = use(params);
-    const regionId = resolvedParams.regionId;
+    const rawRegionId = resolvedParams.regionId;
+    const numericRegionId = Number(rawRegionId);
+    const regionId = Number.isNaN(numericRegionId) ? null : numericRegionId;
 
-    const region = getRegionById(regionId) ?? REGIONS.find((r) => r.name === decodeURIComponent(regionId));
-    const regionName = region?.name ?? decodeURIComponent(regionId);
-    const constituencies = getConstituenciesByRegion(regionId);
-
+    const [region, setRegion] = useState<GeoRegionDetail | null>(null);
+    const [regionError, setRegionError] = useState("");
     const [totalListings, setTotalListings] = useState(0);
     const [featured, setFeatured] = useState<FeaturedProperty[]>([]);
     const [loading, setLoading] = useState(true);
 
+    const { data: constituencies, loading: constLoading } = useConstituencies(regionId);
+
     useEffect(() => {
+        if (regionId == null) return;
+        let alive = true;
+        geoApi.region(regionId)
+            .then((r) => { if (alive) { setRegion(r); setRegionError(""); } })
+            .catch((e: unknown) => { if (alive) setRegionError(e instanceof Error ? e.message : "Failed to load region"); });
+        return () => { alive = false; };
+    }, [regionId]);
+
+    useEffect(() => {
+        if (regionId == null) return;
         setLoading(true);
         Promise.all([
-            propertiesApi.list({ regionId, status: "Live", limit: "1" }),
-            propertiesApi.list({ regionId, status: "Live", limit: "6" }),
+            propertiesApi.list({ regionId: String(regionId), status: "Live", limit: "1" }),
+            propertiesApi.list({ regionId: String(regionId), status: "Live", limit: "6" }),
         ])
-            .then(([countRes, featuredRes]: [any, any]) => {
-                setTotalListings(countRes.pagination?.total ?? 0);
-                setFeatured(featuredRes.data ?? []);
+            .then(([countRes, featuredRes]: [unknown, unknown]) => {
+                const c = countRes as PropertyListResponse;
+                const f = featuredRes as PropertyListResponse;
+                setTotalListings(c.pagination?.total ?? 0);
+                setFeatured(f.data ?? []);
             })
             .catch(() => {
                 setTotalListings(0);
@@ -53,14 +73,16 @@ export default function RegionPage({ params }: { params: Promise<{ regionId: str
             .finally(() => setLoading(false));
     }, [regionId]);
 
-    // Fallback generic constituencies if we don't have specific data
-    const displayConstituencies = constituencies.length > 0
-        ? constituencies
-        : [
-            { id: `${regionId}-c1`, name: "Capital Constituency", listingCount: 0, regionId, districts: [] },
-            { id: `${regionId}-c2`, name: "North Constituency", listingCount: 0, regionId, districts: [] },
-            { id: `${regionId}-c3`, name: "South Constituency", listingCount: 0, regionId, districts: [] },
-        ];
+    if (regionId == null) {
+        return (
+            <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50 text-center px-4">
+                <h1 className="text-2xl font-heading font-bold text-slate-900 mb-2">Region not found</h1>
+                <Link href="/regions" className="text-brand-600 font-bold hover:text-brand-700">Back to regions</Link>
+            </div>
+        );
+    }
+
+    const regionName = region?.name ?? decodeURIComponent(rawRegionId);
 
     return (
         <div className="flex flex-col min-h-screen bg-slate-50">
@@ -83,10 +105,11 @@ export default function RegionPage({ params }: { params: Promise<{ regionId: str
                             </p>
                             {region && (
                                 <p className="mt-1 text-sm font-semibold text-slate-500">
-                                    Capital: <span className="text-slate-800">{region.capitalCity}</span>
-                                    {" · "}
                                     <span className="text-slate-800">{region.constituencyCount}</span> constituencies
                                 </p>
+                            )}
+                            {regionError && !region && (
+                                <p className="mt-1 text-sm font-semibold text-red-600">{regionError}</p>
                             )}
                         </div>
 
@@ -131,20 +154,23 @@ export default function RegionPage({ params }: { params: Promise<{ regionId: str
                         </h2>
 
                         <div className="space-y-3">
-                            {displayConstituencies.map((c) => (
-                                <Link key={c.id} href={`/constituency/${c.id}`} className="block group">
-                                    <Card className="p-5 border-slate-200 hover:border-brand-400 hover:shadow-md transition-all">
-                                        <div className="flex justify-between items-center">
+                            {constLoading ? (
+                                <div className="flex items-center justify-center py-8">
+                                    <Loader2 className="h-5 w-5 animate-spin text-brand-600" />
+                                </div>
+                            ) : constituencies.length === 0 ? (
+                                <p className="text-sm text-slate-500 font-medium py-8 text-center">No constituencies found.</p>
+                            ) : (
+                                constituencies.map((c: GeoConstituency) => (
+                                    <Link key={c.id} href={`/constituency/${c.id}`} className="block group">
+                                        <Card className="p-5 border-slate-200 hover:border-brand-400 hover:shadow-md transition-all">
                                             <h3 className="font-heading font-bold text-lg text-slate-900 group-hover:text-brand-600 transition-colors">
                                                 {c.name}
                                             </h3>
-                                            <span className="bg-brand-50 text-brand-700 font-bold px-2.5 py-0.5 rounded-xl text-xs border border-brand-200 uppercase tracking-wide">
-                                                {c.listingCount} listings
-                                            </span>
-                                        </div>
-                                    </Card>
-                                </Link>
-                            ))}
+                                        </Card>
+                                    </Link>
+                                ))
+                            )}
                         </div>
                     </div>
 
