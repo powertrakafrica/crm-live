@@ -9,10 +9,11 @@ import {
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
-import { agentApi } from "@/lib/api";
+import { agentApi, bookingApi } from "@/lib/api";
 
 interface Ticket {
     id: string;
+    bookingId: number;
     clientName: string;
     clientPhone: string;
     type: string;
@@ -30,12 +31,27 @@ export function AgentTickets() {
     const [simulatedAlert, setSimulatedAlert] = useState(true);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
+    const [savingId, setSavingId] = useState<string | null>(null);
+    const [actionError, setActionError] = useState("");
+
+    // UI status labels map to the backend BookingStatusEnum
+    // (Pending/Confirmed/Completed/Cancelled). "En Route" and "Meeting"
+    // both persist as Confirmed — the backend doesn't model the in-meeting
+    // sub-state, so "Meeting" is a local visual state that reloads as
+    // "En Route".
+    const UI_TO_BACKEND: Record<string, string> = {
+        "En Route": "Confirmed",
+        "Meeting": "Confirmed",
+        "Completed": "Completed",
+        "Cancelled": "Cancelled",
+    };
 
     useEffect(() => {
         agentApi.tickets()
             .then((data: any) => {
                 const mapped = (data ?? []).map((b: any) => ({
                     id: `TKT-${b.id}`,
+                    bookingId: b.id,
                     clientName: b.clientName ?? (b.clientId ? `Client #${b.clientId}` : "Unknown Client"),
                     clientPhone: b.clientPhone ?? null,
                     type: "Guided Viewing",
@@ -53,11 +69,23 @@ export function AgentTickets() {
             .finally(() => setLoading(false));
     }, []);
 
-    const updateStatus = (id: string, newStatus: string) => {
-        const updated = tickets.map(t => t.id === id ? { ...t, status: newStatus } : t);
-        setTickets(updated);
-        if (selectedTicket?.id === id) {
-            setSelectedTicket({ ...selectedTicket, status: newStatus });
+    const updateStatus = async (id: string, newStatus: string) => {
+        const ticket = tickets.find(t => t.id === id) ?? selectedTicket;
+        if (!ticket || !ticket.bookingId) return;
+        const backendStatus = UI_TO_BACKEND[newStatus] ?? newStatus;
+        setSavingId(id);
+        setActionError("");
+        try {
+            await bookingApi.updateStatus(ticket.bookingId, backendStatus);
+            const updated = tickets.map(t => t.id === id ? { ...t, status: newStatus } : t);
+            setTickets(updated);
+            if (selectedTicket?.id === id) {
+                setSelectedTicket({ ...selectedTicket, status: newStatus });
+            }
+        } catch (err: unknown) {
+            setActionError(err instanceof Error ? err.message : "Failed to update status.");
+        } finally {
+            setSavingId(null);
         }
     };
 
@@ -67,6 +95,7 @@ export function AgentTickets() {
             case "En Route": return "bg-yellow-100 text-yellow-700";
             case "Meeting": return "bg-purple-100 text-purple-700";
             case "Completed": return "bg-green-100 text-green-700";
+            case "Cancelled": return "bg-red-100 text-red-700";
             default: return "bg-charcoal-100 text-charcoal-700";
         }
     };
@@ -214,6 +243,7 @@ export function AgentTickets() {
                                         <Button
                                             onClick={() => updateStatus(selectedTicket.id, "En Route")}
                                             variant="outline"
+                                            disabled={savingId === selectedTicket.id || selectedTicket.status === "Completed" || selectedTicket.status === "Cancelled"}
                                             className={selectedTicket.status === "En Route" ? "bg-yellow-500 hover:bg-yellow-600 text-white font-bold" : "font-bold text-charcoal-600"}
                                         >
                                             <Navigation className="h-4 w-4 mr-2" /> En Route
@@ -221,6 +251,7 @@ export function AgentTickets() {
                                         <Button
                                             onClick={() => updateStatus(selectedTicket.id, "Meeting")}
                                             variant="outline"
+                                            disabled={savingId === selectedTicket.id || selectedTicket.status === "Completed" || selectedTicket.status === "Cancelled"}
                                             className={selectedTicket.status === "Meeting" ? "bg-purple-600 hover:bg-purple-700 text-white font-bold" : "font-bold text-charcoal-600"}
                                         >
                                             <Clock className="h-4 w-4 mr-2" /> Meeting in Progress
@@ -228,11 +259,23 @@ export function AgentTickets() {
                                         <Button
                                             onClick={() => updateStatus(selectedTicket.id, "Completed")}
                                             variant="outline"
+                                            disabled={savingId === selectedTicket.id || selectedTicket.status === "Completed" || selectedTicket.status === "Cancelled"}
                                             className={selectedTicket.status === "Completed" ? "bg-green-600 hover:bg-green-700 text-white font-bold" : "font-bold text-charcoal-600"}
                                         >
                                             <CheckCircle className="h-4 w-4 mr-2" /> Completed
                                         </Button>
+                                        <Button
+                                            onClick={() => updateStatus(selectedTicket.id, "Cancelled")}
+                                            variant="outline"
+                                            disabled={savingId === selectedTicket.id || selectedTicket.status === "Completed" || selectedTicket.status === "Cancelled"}
+                                            className={selectedTicket.status === "Cancelled" ? "bg-red-600 hover:bg-red-700 text-white font-bold" : "font-bold text-red-600"}
+                                        >
+                                            <AlertCircle className="h-4 w-4 mr-2" /> Cancel
+                                        </Button>
                                     </div>
+                                    {actionError && (
+                                        <p className="mt-3 text-sm font-medium text-red-600">{actionError}</p>
+                                    )}
                                 </div>
                             </CardContent>
                         </Card>
