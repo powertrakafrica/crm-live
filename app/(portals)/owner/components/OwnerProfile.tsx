@@ -28,6 +28,7 @@ export function OwnerProfile() {
     const [livenessStatus, setLivenessStatus] = useState<"pending" | "scanning" | "verified">("pending");
     const [idUploaded, setIdUploaded] = useState(false);
     const [profileType, setProfileType] = useState<string | null>(null);
+    const [ghanaCardNumber, setGhanaCardNumber] = useState("");
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
@@ -36,6 +37,7 @@ export function OwnerProfile() {
                 const p = data as UserProfile;
                 setProfile(p);
                 if (p.ghanaCardNumber) setIdUploaded(true);
+                setGhanaCardNumber(p.ghanaCardNumber ?? "");
                 setLivenessStatus(p.isVerified ? "verified" : "pending");
             })
             .catch((err: any) => setError(err.message || "Failed to load profile"))
@@ -52,14 +54,27 @@ export function OwnerProfile() {
     const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
+        if (!ghanaCardNumber.trim()) {
+            setError("Enter your Ghana Card number before uploading the scan.");
+            return;
+        }
         setSaving(true);
+        setError("");
         try {
             const presign = await uploadApi.presign(file.name, "documents", file.type);
             await fetch(presign.url, { method: "PUT", body: file, headers: { "Content-Type": file.type } });
-            await profileApi.update({ ghanaCardNumber: "PENDING-VERIFY" });
+            // Send the real card number + the uploaded scan URL to the ghana-card
+            // endpoint, which stores the doc in agent_documents and writes
+            // ghanaCardNumber on the user. The old code discarded the URL and wrote
+            // a fake "PENDING-VERIFY" string, so the scan was never stored.
+            await profileApi.uploadGhanaCard({
+                documentUrl: presign.publicUrl,
+                ghanaCardNumber: ghanaCardNumber.trim(),
+                filename: file.name,
+            });
             setIdUploaded(true);
-        } catch (err: any) {
-            setError(err.message || "Upload failed");
+        } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : "Upload failed");
         } finally {
             setSaving(false);
         }
@@ -125,14 +140,29 @@ export function OwnerProfile() {
                             </div>
 
                             {!idUploaded ? (
-                                <div
-                                    className="border-2 border-dashed border-charcoal-200 rounded-sm p-8 flex flex-col items-center justify-center bg-charcoal-50 hover:bg-brand-50 hover:border-brand-300 transition-colors cursor-pointer"
-                                    onClick={() => fileInputRef.current?.click()}
-                                >
+                                <div className="space-y-4">
+                                    <div>
+                                        <label htmlFor="ghanaCardNumber" className="block text-sm font-bold text-charcoal-900 mb-1.5">
+                                            Ghana Card Number
+                                        </label>
+                                        <input
+                                            id="ghanaCardNumber"
+                                            type="text"
+                                            placeholder="e.g. GHA-712345678-9"
+                                            value={ghanaCardNumber}
+                                            onChange={(e) => setGhanaCardNumber(e.target.value)}
+                                            className="block w-full rounded-sm border border-charcoal-200 bg-white px-3 py-2 text-sm text-charcoal-900 outline-none placeholder:text-charcoal-400 focus:border-brand-400 focus:ring-2 focus:ring-brand-100"
+                                        />
+                                    </div>
+                                    <div
+                                        className={`border-2 border-dashed rounded-sm p-8 flex flex-col items-center justify-center bg-charcoal-50 hover:bg-brand-50 hover:border-brand-300 transition-colors ${ghanaCardNumber.trim() ? "cursor-pointer" : "border-charcoal-200 opacity-60 pointer-events-none"}`}
+                                        onClick={() => ghanaCardNumber.trim() && fileInputRef.current?.click()}
+                                    >
                                     <input ref={fileInputRef} type="file" accept="image/*,.pdf" className="hidden" onChange={handleFileChange} />
                                     <UploadCloud className="h-8 w-8 text-charcoal-400 mb-2" />
                                     <p className="text-sm font-bold text-charcoal-900">Click to upload scan</p>
                                     <p className="text-xs text-charcoal-500 mt-1">High-res JPG or PNG only.</p>
+                                    </div>
                                 </div>
                             ) : (
                                 <div className="bg-green-50 border border-green-200 rounded-sm p-4 flex items-center gap-3 text-green-800">
