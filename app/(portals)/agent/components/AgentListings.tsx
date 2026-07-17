@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Home,
   Plus,
@@ -18,12 +18,14 @@ import {
   Calendar,
   FileText,
   CheckSquare,
+  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { PhotonSearch } from "@/components/PhotonSearch";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
-import { agentApi } from "@/lib/api";
+import { agentApi, propertiesApi, uploadApi } from "@/lib/api";
+import { useGeoRegions, useConstituencies } from "@/lib/hooks/geo";
 
 interface AgentListing {
   id: number;
@@ -43,6 +45,9 @@ interface AgentListing {
   sqft?: number;
   yearBuilt?: number;
   gpsCode?: string;
+  propertyType?: string;
+  regionId?: number;
+  constituencyId?: number;
   amenities?: string[];
   images?: { url: string; isPrimary: boolean }[];
 }
@@ -67,6 +72,9 @@ export function AgentListings() {
     location: "",
     gpsCode: "",
     category: "Rent",
+    propertyType: "House",
+    regionId: 0,
+    constituencyId: 0,
     bedrooms: 0,
     bathrooms: 0,
     sqft: 0,
@@ -75,6 +83,23 @@ export function AgentListings() {
     price: 0,
     period: "month",
   });
+
+  const [imageFiles, setImageFiles] = useState<File[]>([]);
+  const [imagePreviews, setImagePreviews] = useState<string[]>([]);
+  const [publishing, setPublishing] = useState(false);
+  const [publishError, setPublishError] = useState("");
+  const imageInputRef = useRef<HTMLInputElement>(null);
+
+  const regions = useGeoRegions();
+  const constituencies = useConstituencies(wizardForm.regionId || null);
+
+  useEffect(() => {
+    const urls = imageFiles.map((f) => URL.createObjectURL(f));
+    setImagePreviews(urls);
+    return () => {
+      urls.forEach((u) => URL.revokeObjectURL(u));
+    };
+  }, [imageFiles]);
 
   const loadListings = () => {
     // No synchronous setState here: on mount `loading` starts true via the
@@ -160,6 +185,9 @@ export function AgentListings() {
       location: "",
       gpsCode: "",
       category: "Rent",
+      propertyType: "House",
+      regionId: 0,
+      constituencyId: 0,
       bedrooms: 0,
       bathrooms: 0,
       sqft: 0,
@@ -168,8 +196,14 @@ export function AgentListings() {
       price: 0,
       period: "month",
     });
+    setImageFiles([]);
+    setPublishError("");
     setEditingListing(null);
     setIsWizardOpen(true);
+  };
+
+  const onRegionChange = (regionId: number) => {
+    setWizardForm((prev) => ({ ...prev, regionId, constituencyId: 0 }));
   };
 
   const openEditWizard = (listing: AgentListing) => {
@@ -181,6 +215,9 @@ export function AgentListings() {
       location: listing.location ?? "",
       gpsCode: listing.gpsCode ?? "",
       category: listing.category ?? "Rent",
+      propertyType: listing.propertyType ?? "House",
+      regionId: listing.regionId ?? 0,
+      constituencyId: listing.constituencyId ?? 0,
       bedrooms: listing.bedrooms ?? 0,
       bathrooms: listing.bathrooms ?? 0,
       sqft: listing.sqft ?? 0,
@@ -193,7 +230,7 @@ export function AgentListings() {
     setIsWizardOpen(true);
   };
 
-  const handleSaveListing = () => {
+  const handleSaveEdit = () => {
     const {
       title,
       description,
@@ -270,6 +307,83 @@ export function AgentListings() {
     setIsWizardOpen(false);
   };
 
+  const handlePublish = async () => {
+    setPublishError("");
+    const {
+      title,
+      description,
+      location,
+      gpsCode,
+      category,
+      propertyType,
+      regionId,
+      constituencyId,
+      bedrooms,
+      bathrooms,
+      sqft,
+      yearBuilt,
+      amenities,
+      price,
+      period,
+    } = wizardForm;
+
+    const amenitiesArr = amenities
+      ? amenities.split(",").map((a) => a.trim()).filter(Boolean)
+      : [];
+
+    setPublishing(true);
+    try {
+      const created = (await propertiesApi.create({
+        title,
+        description: description || "",
+        price,
+        pricePeriod: period,
+        location,
+        gpsCode: gpsCode || undefined,
+        category,
+        transactionType: category,
+        propertyType,
+        regionId,
+        constituencyId,
+        bedrooms,
+        bathrooms,
+        sqft: sqft || undefined,
+        yearBuilt: yearBuilt || undefined,
+        amenities: amenitiesArr,
+      })) as { id: number };
+
+      let uploaded = 0;
+      for (let i = 0; i < imageFiles.length; i++) {
+        try {
+          const { url } = (await uploadApi.image(imageFiles[i])) as { url: string };
+          await propertiesApi.addImage(created.id, {
+            url,
+            isPrimary: i === 0,
+            sortOrder: i,
+          });
+          uploaded++;
+        } catch {
+          // Property is already created; keep going so partial uploads still attach.
+        }
+      }
+      if (imageFiles.length > 0 && uploaded < imageFiles.length) {
+        setPublishError(
+          `Listing created, but only ${uploaded} of ${imageFiles.length} images uploaded.`,
+        );
+      }
+      setImageFiles([]);
+      setEditingListing(null);
+      setIsWizardOpen(false);
+      loadListings();
+    } catch (err: unknown) {
+      setPublishError(
+        err instanceof Error ? err.message : "Failed to publish listing.",
+      );
+    } finally {
+      setPublishing(false);
+    }
+  };
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case "Available":
@@ -288,9 +402,14 @@ export function AgentListings() {
   const canContinue = () => {
     switch (wizardStep) {
       case 1:
-        return wizardForm.title.trim() !== "" && wizardForm.ownerName.trim() !== "" && wizardForm.location.trim() !== "";
+        return (
+          wizardForm.title.trim() !== "" &&
+          wizardForm.location.trim() !== "" &&
+          wizardForm.regionId !== 0 &&
+          wizardForm.constituencyId !== 0
+        );
       case 2:
-        return true;
+        return wizardForm.propertyType !== "";
       case 3:
         return wizardForm.price > 0;
       case 4:
@@ -347,44 +466,81 @@ export function AgentListings() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1">
               <label className="text-xs font-bold uppercase tracking-wider text-charcoal-500">
-                Owner Name *
+                Region *
               </label>
-              <input
-                type="text"
-                value={wizardForm.ownerName}
-                onChange={(e) =>
-                  setWizardForm({ ...wizardForm, ownerName: e.target.value })
-                }
-                placeholder="Owner or Client Name"
-                className={`w-full bg-white border text-sm rounded-sm px-3 py-3 outline-none font-medium text-charcoal-900 shadow-sm ${wizardForm.ownerName.trim() === '' ? 'border-red-300 focus:border-red-500 focus:ring-1 focus:ring-red-500' : 'border-charcoal-200 focus:border-brand-500 focus:ring-1 focus:ring-brand-500'}`}
-              />
-              {wizardForm.ownerName.trim() === '' && (
-                <p className="text-[11px] text-red-600 font-medium">Owner name is required</p>
+              <select
+                value={wizardForm.regionId}
+                onChange={(e) => onRegionChange(Number(e.target.value))}
+                className={`w-full bg-white border text-sm rounded-sm px-3 py-3 outline-none font-medium text-charcoal-900 shadow-sm ${wizardForm.regionId === 0 ? "border-red-300 focus:border-red-500 focus:ring-1 focus:ring-red-500" : "border-charcoal-200 focus:border-brand-500 focus:ring-1 focus:ring-brand-500"}`}
+              >
+                <option value={0} disabled>
+                  {regions.loading ? "Loading regions…" : "Select region"}
+                </option>
+                {regions.data.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.name}
+                  </option>
+                ))}
+              </select>
+              {wizardForm.regionId === 0 && (
+                <p className="text-[11px] text-red-600 font-medium">Region is required</p>
+              )}
+              {regions.error && (
+                <p className="text-[11px] text-red-600 font-medium">{regions.error}</p>
               )}
             </div>
             <div className="space-y-1">
               <label className="text-xs font-bold uppercase tracking-wider text-charcoal-500">
-                Location (City/Area) *
+                Constituency *
               </label>
-              <div className={`rounded-sm ${wizardForm.location.trim() === '' ? 'ring-1 ring-red-500' : ''}`}>
-                <PhotonSearch
-                  value={wizardForm.location}
-                  onChange={(val, feat) => {
-                    setWizardForm({ ...wizardForm, location: val });
-                    if (feat?.properties.postcode) {
-                      setWizardForm((prev) => ({
-                        ...prev,
-                        gpsCode: feat.properties.postcode ?? prev.gpsCode,
-                      }));
-                    }
-                  }}
-                  placeholder="Search location..."
-                />
-              </div>
-              {wizardForm.location.trim() === '' && (
-                <p className="text-[11px] text-red-600 font-medium">Location is required</p>
+              <select
+                value={wizardForm.constituencyId}
+                onChange={(e) =>
+                  setWizardForm({ ...wizardForm, constituencyId: Number(e.target.value) })
+                }
+                disabled={wizardForm.regionId === 0}
+                className={`w-full bg-white border text-sm rounded-sm px-3 py-3 outline-none font-medium text-charcoal-900 shadow-sm disabled:bg-charcoal-50 disabled:text-charcoal-400 ${wizardForm.constituencyId === 0 ? "border-red-300 focus:border-red-500 focus:ring-1 focus:ring-red-500" : "border-charcoal-200 focus:border-brand-500 focus:ring-1 focus:ring-brand-500"}`}
+              >
+                <option value={0} disabled>
+                  {wizardForm.regionId === 0
+                    ? "Select region first"
+                    : constituencies.loading
+                      ? "Loading…"
+                      : "Select constituency"}
+                </option>
+                {constituencies.data.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+              {wizardForm.constituencyId === 0 && wizardForm.regionId !== 0 && (
+                <p className="text-[11px] text-red-600 font-medium">Constituency is required</p>
               )}
             </div>
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-bold uppercase tracking-wider text-charcoal-500">
+              Location (City/Area) *
+            </label>
+            <div className={`rounded-sm ${wizardForm.location.trim() === "" ? "ring-1 ring-red-500" : ""}`}>
+              <PhotonSearch
+                value={wizardForm.location}
+                onChange={(val, feat) => {
+                  setWizardForm({ ...wizardForm, location: val });
+                  if (feat?.properties.postcode) {
+                    setWizardForm((prev) => ({
+                      ...prev,
+                      gpsCode: feat.properties.postcode ?? prev.gpsCode,
+                    }));
+                  }
+                }}
+                placeholder="Search location..."
+              />
+            </div>
+            {wizardForm.location.trim() === "" && (
+              <p className="text-[11px] text-red-600 font-medium">Location is required</p>
+            )}
           </div>
           <div className="space-y-1">
             <label className="text-xs font-bold uppercase tracking-wider text-charcoal-500">
@@ -413,6 +569,24 @@ export function AgentListings() {
             <p className="text-sm text-charcoal-500">
               Key details about the property.
             </p>
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-bold uppercase tracking-wider text-charcoal-500">
+              Property Type *
+            </label>
+            <select
+              value={wizardForm.propertyType}
+              onChange={(e) =>
+                setWizardForm({ ...wizardForm, propertyType: e.target.value })
+              }
+              className="w-full bg-white border border-charcoal-200 focus:border-brand-500 focus:ring-1 focus:ring-brand-500 text-sm rounded-sm px-3 py-3 outline-none font-medium text-charcoal-900 shadow-sm"
+            >
+              <option value="House">House</option>
+              <option value="Apartment">Apartment</option>
+              <option value="Land">Land</option>
+              <option value="Commercial">Commercial</option>
+              <option value="Mixed-Use">Mixed-Use</option>
+            </select>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="space-y-1">
@@ -590,16 +764,37 @@ export function AgentListings() {
       {wizardStep === 4 && (
         <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
           <div className="mb-2">
-            <h4 className="font-bold text-lg text-charcoal-900">
-              Media Upload
-            </h4>
+            <h4 className="font-bold text-lg text-charcoal-900">Media Upload</h4>
             <p className="text-sm text-charcoal-500">
               Upload photos and visuals for the listing.
             </p>
           </div>
+          <input
+            ref={imageInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              const picked = Array.from(e.target.files ?? []);
+              setImageFiles((prev) => {
+                const next = [...prev, ...picked];
+                return next.length > 8 ? next.slice(0, 8) : next;
+              });
+              e.target.value = "";
+            }}
+          />
           <div
+            role="button"
+            tabIndex={0}
+            onClick={() => imageInputRef.current?.click()}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                imageInputRef.current?.click();
+              }
+            }}
             className="border-2 border-dashed border-brand-300 bg-brand-50/50 rounded-sm p-10 flex flex-col items-center justify-center cursor-pointer hover:bg-brand-50 transition-colors text-center"
-            onClick={() => alert("Simulating file picker dialog...")}
           >
             <div className="h-16 w-16 bg-white rounded-full shadow-sm flex items-center justify-center mb-4 text-brand-600 border border-brand-100">
               <Plus className="h-8 w-8" />
@@ -608,51 +803,52 @@ export function AgentListings() {
               Click to upload or drag and drop
             </p>
             <p className="text-sm text-charcoal-500 mb-4 max-w-sm mx-auto">
-              SVG, PNG, JPG or GIF (max. 10MB). First image will be used as the
-              cover.
+              PNG, JPG or GIF (max 10MB each). First image will be used as the
+              cover. Up to 8 images.
             </p>
             <Button
+              type="button"
               variant="outline"
               className="border-brand-200 font-bold bg-white shadow-sm text-brand-700"
             >
               Browse Files
             </Button>
           </div>
-          <div className="mt-3 flex gap-3 overflow-x-auto pb-2 custom-scrollbar">
-            <div className="h-20 w-28 shrink-0 bg-charcoal-200 rounded-sm overflow-hidden relative group">
-              <img
-                src="https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?q=80&w=2075&auto=format&fit=crop"
-                className="w-full h-full object-cover"
-                alt="thumb1"
-              />
-              <div className="absolute top-1 right-1 bg-charcoal-900/60 p-1 rounded-sm cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity">
-                <X className="h-3 w-3 text-white" />
-              </div>
-              <div className="absolute bottom-0 left-0 w-full bg-brand-600 text-white text-[9px] font-bold text-center py-0.5 tracking-wide">
-                COVER
-              </div>
+          {imagePreviews.length > 0 && (
+            <div className="mt-3 flex gap-3 overflow-x-auto pb-2 custom-scrollbar">
+              {imagePreviews.map((src, i) => (
+                <div
+                  key={src}
+                  className="h-20 w-28 shrink-0 bg-charcoal-200 rounded-sm overflow-hidden relative group"
+                >
+                  <img
+                    src={src}
+                    className="w-full h-full object-cover"
+                    alt={`upload-${i}`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setImageFiles((prev) =>
+                        prev.filter((_, idx) => idx !== i),
+                      )
+                    }
+                    className="absolute top-1 right-1 bg-charcoal-900/60 p-1 rounded-sm cursor-pointer hover:bg-charcoal-900/80 transition-colors"
+                  >
+                    <X className="h-3 w-3 text-white" />
+                  </button>
+                  {i === 0 && (
+                    <div className="absolute bottom-0 left-0 w-full bg-brand-600 text-white text-[9px] font-bold text-center py-0.5 tracking-wide">
+                      COVER
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
-            <div className="h-20 w-28 shrink-0 bg-charcoal-200 rounded-sm overflow-hidden relative group">
-              <img
-                src="https://images.unsplash.com/photo-1600585154340-be6161a56a0c?q=80&w=2070&auto=format&fit=crop"
-                className="w-full h-full object-cover"
-                alt="thumb2"
-              />
-              <div className="absolute top-1 right-1 bg-charcoal-900/60 p-1 rounded-sm cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity">
-                <X className="h-3 w-3 text-white" />
-              </div>
-            </div>
-            <div className="h-20 w-28 shrink-0 bg-charcoal-200 rounded-sm overflow-hidden relative group">
-              <img
-                src="https://images.unsplash.com/photo-1536376072261-38c75010e6c9?q=80&w=2071&auto=format&fit=crop"
-                className="w-full h-full object-cover"
-                alt="thumb3"
-              />
-              <div className="absolute top-1 right-1 bg-charcoal-900/60 p-1 rounded-sm cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity">
-                <X className="h-3 w-3 text-white" />
-              </div>
-            </div>
-          </div>
+          )}
+          {publishError && (
+            <p className="text-sm font-medium text-red-700">{publishError}</p>
+          )}
         </div>
       )}
     </div>
@@ -869,6 +1065,11 @@ export function AgentListings() {
               </div>
               <button
                 onClick={() => {
+                  // Clear any picked-but-unpublished images so the preview
+                  // effect's cleanup revokes their object URLs (no leak on
+                  // X-cancel). Mirrors openWizard's reset.
+                  setImageFiles([]);
+                  setPublishError("");
                   setEditingListing(null);
                   setIsWizardOpen(false);
                 }}
@@ -908,10 +1109,15 @@ export function AgentListings() {
                 </Button>
               ) : (
                 <Button
-                  onClick={handleSaveListing}
-                  className="bg-brand-600 hover:bg-brand-700 text-white font-bold h-11 px-8 shadow-sm"
+                  onClick={editingListing ? handleSaveEdit : handlePublish}
+                  disabled={publishing}
+                  className="bg-brand-600 hover:bg-brand-700 text-white font-bold h-11 px-8 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <Plus className="h-4 w-4 mr-2" />{" "}
+                  {publishing ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Plus className="h-4 w-4 mr-2" />
+                  )}{" "}
                   {editingListing ? "Save Changes" : "Publish Listing"}
                 </Button>
               )}
