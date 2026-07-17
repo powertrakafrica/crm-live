@@ -84,36 +84,34 @@ export default function AgentPortal() {
                     </div>
                 </div>
 
-                <div className="grid grid-cols-1 xl:grid-cols-4 gap-8">
-                    {/* Sidebar Navigation */}
-                    <div className="xl:col-span-1">
-                        <div className="sticky top-24 space-y-1">
-                            {navItems.map((item) => (
-                                <button
-                                    key={item.id}
-                                    onClick={() => setActiveTab(item.id)}
-                                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all text-left ${
-                                        activeTab === item.id
-                                            ? "bg-brand-50 text-brand-700 border border-brand-200"
-                                            : "text-slate-600 hover:bg-slate-100 border border-transparent"
-                                    }`}
-                                >
-                                    <item.icon className="h-4 w-4 shrink-0" />
-                                    {item.label}
-                                </button>
-                            ))}
-                        </div>
+                {/* Horizontal Navigation */}
+                <nav aria-label="Agent workspace" className="mb-8">
+                    <div className="flex items-center gap-2 overflow-x-auto pb-2 border-b border-slate-200">
+                        {navItems.map((item) => (
+                            <button
+                                key={item.id}
+                                onClick={() => setActiveTab(item.id)}
+                                className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold whitespace-nowrap transition-all ${
+                                    activeTab === item.id
+                                        ? "bg-brand-50 text-brand-700 border border-brand-200"
+                                        : "text-slate-600 hover:bg-slate-100 border border-transparent"
+                                }`}
+                            >
+                                <item.icon className="h-4 w-4 shrink-0" />
+                                {item.label}
+                            </button>
+                        ))}
                     </div>
+                </nav>
 
-                    {/* Main Content */}
-                    <div className="xl:col-span-3 min-h-[600px] animate-fade-in">
-                        {activeTab === "overview" && <AgentOverview regionLabel={assignedRegion} />}
-                        {activeTab === "tickets" && <AgentTickets />}
-                        {activeTab === "verification" && <AgentVerification />}
-                        {activeTab === "listings" && <AgentListings />}
-                        {activeTab === "earnings" && <AgentEarnings />}
-                        {activeTab === "profile" && <AgentProfile />}
-                    </div>
+                {/* Main Content */}
+                <div className="min-h-[600px] animate-fade-in">
+                    {activeTab === "overview" && <AgentOverview regionLabel={assignedRegion} />}
+                    {activeTab === "tickets" && <AgentTickets />}
+                    {activeTab === "verification" && <AgentVerification />}
+                    {activeTab === "listings" && <AgentListings />}
+                    {activeTab === "earnings" && <AgentEarnings />}
+                    {activeTab === "profile" && <AgentProfile />}
                 </div>
             </div>
         </div>
