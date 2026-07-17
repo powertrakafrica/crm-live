@@ -347,7 +347,7 @@ export const geoApi = {
 export const verificationApi = {
     get: (propertyId: number) => fetchJson<unknown>(`/properties/${propertyId}/verification`),
     create: (propertyId: number) => fetchJson<unknown>(`/properties/${propertyId}/verification`, { method: "POST" }),
-    updateCheck: (propertyId: number, checkId: number, body: { status?: string; evidenceUrl?: string; notes?: string }) =>
+    updateCheck: (propertyId: number, checkId: number, body: { status?: string; evidenceUrl?: string; notes?: string; gpsLatitude?: string; gpsLongitude?: string }) =>
         fetchJson<unknown>(`/properties/${propertyId}/verification/checks/${checkId}`, { method: "PATCH", body: JSON.stringify(body) }),
     submitEvidence: (verificationId: number, checkId: number, body: { evidenceUrl: string; notes?: string }) =>
         fetchJson<unknown>(`/owner/verifications/${verificationId}/checks/${checkId}/evidence`, { method: "POST", body: JSON.stringify(body) }),

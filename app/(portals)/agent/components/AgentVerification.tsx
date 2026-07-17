@@ -32,6 +32,8 @@ export function AgentVerification() {
     const [selectedId, setSelectedId] = useState<number | null>(null);
     const [isOffline, setIsOffline] = useState(false);
     const [gpsCheckedIn, setGpsCheckedIn] = useState(false);
+    const [gpsCheckingIn, setGpsCheckingIn] = useState(false);
+    const [gpsError, setGpsError] = useState("");
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
     const [uploading, setUploading] = useState(false);
@@ -113,6 +115,59 @@ export function AgentVerification() {
                 }));
             }
         }
+    };
+
+    // Real GPS check-in: capture the device geolocation and persist the
+    // coords to the verification's GPSLocation check (the backend stores
+    // gpsLatitude/gpsLongitude as strings). Marks that check Passed and
+    // unlocks the checklist section. The "within 50 meters" copy is a
+    // prompt; the backend does not enforce a radius, so we record the
+    // agent's actual position for the admin review audit trail.
+    const handleGpsCheckIn = () => {
+        if (!activeVerification || gpsCheckedIn || gpsCheckingIn) return;
+        setGpsError("");
+        if (typeof navigator === "undefined" || !navigator.geolocation) {
+            setGpsError("Geolocation is not available on this device/browser.");
+            return;
+        }
+        setGpsCheckingIn(true);
+        navigator.geolocation.getCurrentPosition(
+            async (position) => {
+                const { latitude, longitude } = position.coords;
+                const gpsCheck = activeVerification.checks.find(c => c.checkType === "GPSLocation");
+                try {
+                    if (!isOffline && gpsCheck) {
+                        await verificationApi.updateCheck(activeVerification.propertyId, gpsCheck.id, {
+                            gpsLatitude: String(latitude),
+                            gpsLongitude: String(longitude),
+                            status: "Passed",
+                        });
+                        setVerifications(prev => prev.map(v => {
+                            if (v.id !== activeVerification.id) return v;
+                            return {
+                                ...v,
+                                checks: v.checks.map(c => c.checkType === "GPSLocation" ? { ...c, status: "Passed" } : c),
+                            };
+                        }));
+                    }
+                    setGpsCheckedIn(true);
+                } catch (err: unknown) {
+                    setGpsError(err instanceof Error ? err.message : "Failed to record GPS check-in.");
+                } finally {
+                    setGpsCheckingIn(false);
+                }
+            },
+            (err: GeolocationPositionError) => {
+                const messages: Record<number, string> = {
+                    1: "Location permission denied. Enable location access to check in.",
+                    2: "Position unavailable. Check your GPS signal and retry.",
+                    3: "Timed out acquiring GPS. Retry on-site.",
+                };
+                setGpsError(messages[err.code] ?? "Failed to acquire GPS.");
+                setGpsCheckingIn(false);
+            },
+            { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
+        );
     };
 
     const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -259,15 +314,16 @@ export function AgentVerification() {
                                             <p className="text-sm font-medium text-charcoal-500">Location: <span className="text-charcoal-900 font-mono font-bold">{activeVerification.propertyLocation}</span></p>
                                         </div>
                                         <Button
-                                            onClick={() => setGpsCheckedIn(true)}
+                                            onClick={handleGpsCheckIn}
                                             size="lg"
-                                            disabled={gpsCheckedIn}
+                                            disabled={gpsCheckedIn || gpsCheckingIn}
                                             className={`${gpsCheckedIn ? "bg-green-600 hover:bg-green-700" : "bg-blue-600 hover:bg-blue-700"} text-white font-bold rounded-sm shadow-sm transition-all`}
                                         >
-                                            {gpsCheckedIn ? <><CheckCircle className="h-5 w-5 mr-2" /> Checked In On-Site</> : <><MapPin className="h-5 w-5 mr-2 -ml-1" /> GPS Check-In</>}
+                                            {gpsCheckedIn ? <><CheckCircle className="h-5 w-5 mr-2" /> Checked In On-Site</> : gpsCheckingIn ? <><Loader2 className="h-5 w-5 mr-2 animate-spin" /> Acquiring GPS…</> : <><MapPin className="h-5 w-5 mr-2 -ml-1" /> GPS Check-In</>}
                                         </Button>
                                     </div>
                                     {!gpsCheckedIn && <p className="text-xs text-red-500 font-bold mt-4 flex items-center gap-1"><AlertCircle className="h-3 w-3" /> You must be within 50 meters of the property to check in.</p>}
+                                    {gpsError && <p className="text-xs text-red-600 font-bold mt-2 flex items-center gap-1"><AlertCircle className="h-3 w-3" /> {gpsError}</p>}
                                 </CardContent>
                             </Card>
 
