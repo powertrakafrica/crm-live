@@ -142,27 +142,18 @@ export function ClientCommunications() {
 
     const handleBookSlot = async () => {
         if (!selectedPropertyId || !selectedSlot || !selectedTime) return;
-        const slot = slots.find((s) => s.id === selectedSlot);
-        if (!slot) return;
         setBookingLoading(true);
         setError("");
         try {
-            // Convert slot day+date to an ISO date string (approximate: use next occurrence of that weekday)
-            const dayMap: Record<string, number> = { Sunday: 0, Monday: 1, Tuesday: 2, Wednesday: 3, Thursday: 4, Friday: 5, Saturday: 6 };
-            const targetDay = dayMap[slot.day] ?? 1;
-            const today = new Date();
-            const diff = (targetDay - today.getDay() + 7) % 7;
-            const scheduledDate = new Date(today);
-            scheduledDate.setDate(today.getDate() + (diff === 0 ? 7 : diff));
             await bookingApi.create({
-                propertyId: selectedPropertyId,
-                scheduledDate: scheduledDate.toISOString().split("T")[0],
-                scheduledTime: selectedTime,
                 notes: "Booked via client portal",
+                propertyId: selectedPropertyId,
+                scheduledDate: selectedSlot,   // the slot.id is the concrete ISO date "YYYY-MM-DD"
+                scheduledTime: selectedTime,   // "09:00"
             });
             setSlotBooked(true);
-        } catch (err: any) {
-            setError(err.message || "Booking failed");
+        } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : "Booking failed");
         } finally {
             setBookingLoading(false);
         }
