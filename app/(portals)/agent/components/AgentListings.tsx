@@ -6,7 +6,6 @@ import {
   Plus,
   Edit,
   Eye,
-  MoreHorizontal,
   Search,
   User,
   X,
@@ -19,6 +18,7 @@ import {
   FileText,
   CheckSquare,
   Loader2,
+  Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { PhotonSearch } from "@/components/PhotonSearch";
@@ -88,6 +88,7 @@ export function AgentListings() {
   const [imagePreviews, setImagePreviews] = useState<string[]>([]);
   const [publishing, setPublishing] = useState(false);
   const [publishError, setPublishError] = useState("");
+  const [deleteError, setDeleteError] = useState("");
   const imageInputRef = useRef<HTMLInputElement>(null);
 
   const regions = useGeoRegions();
@@ -231,14 +232,17 @@ export function AgentListings() {
     setIsWizardOpen(true);
   };
 
-  const handleSaveEdit = () => {
+  const handleSaveEdit = async () => {
+    if (!editingListing) return;
     const {
       title,
       description,
-      ownerName,
       location,
       gpsCode,
       category,
+      propertyType,
+      regionId,
+      constituencyId,
       bedrooms,
       bathrooms,
       sqft,
@@ -255,7 +259,30 @@ export function AgentListings() {
           .filter(Boolean)
       : [];
 
-    if (editingListing) {
+    setPublishError("");
+    setPublishing(true);
+    try {
+      // PUT /properties/:id strips status + verificationStatus server-side
+      // (lifecycle transitions are admin-only), so we only send editable
+      // details. ownerName is derived from ownerId, not sent.
+      await propertiesApi.update(editingListing.id, {
+        title,
+        description: description || "",
+        price,
+        pricePeriod: period,
+        location,
+        gpsCode: gpsCode || undefined,
+        category,
+        transactionType: category,
+        propertyType,
+        regionId,
+        constituencyId,
+        bedrooms,
+        bathrooms,
+        sqft: sqft || undefined,
+        yearBuilt: yearBuilt || undefined,
+        amenities: amenitiesArr,
+      });
       const updated = listings.map((l) =>
         l.id === editingListing.id
           ? {
@@ -267,45 +294,36 @@ export function AgentListings() {
               bedrooms,
               bathrooms,
               location,
-              ownerName,
               description,
               sqft,
               yearBuilt,
               gpsCode,
+              propertyType,
+              regionId,
+              constituencyId,
               amenities: amenitiesArr,
             }
           : l,
       );
       setListings(updated);
       setEditingListing(null);
-    } else {
-      const newListing: AgentListing = {
-        id: Date.now(),
-        title,
-        category,
-        price,
-        period,
-        bedrooms,
-        bathrooms,
-        location,
-        ownerName,
-        description,
-        sqft,
-        yearBuilt,
-        gpsCode,
-        amenities: amenitiesArr,
-        status: "Available",
-        views: 0,
-        enquiries: 0,
-        dateAdded: new Date().toLocaleDateString("en-US", {
-          month: "short",
-          day: "numeric",
-          year: "numeric",
-        }),
-      };
-      setListings([newListing, ...listings]);
+      setIsWizardOpen(false);
+    } catch (err: unknown) {
+      setPublishError(err instanceof Error ? err.message : "Failed to save changes.");
+    } finally {
+      setPublishing(false);
     }
-    setIsWizardOpen(false);
+  };
+
+  const handleUnpublish = async (listing: AgentListing) => {
+    if (!window.confirm(`Unpublish and delete "${listing.title}"? This cannot be undone.`)) return;
+    setDeleteError("");
+    try {
+      await propertiesApi.delete(listing.id);
+      setListings((prev) => prev.filter((l) => l.id !== listing.id));
+    } catch (err: unknown) {
+      setDeleteError(err instanceof Error ? err.message : "Failed to unpublish listing.");
+    }
   };
 
   const handlePublish = async () => {
@@ -910,6 +928,12 @@ export function AgentListings() {
               </div>
             </div>
 
+            {deleteError && (
+              <div className="mb-3 text-sm font-medium text-red-700 bg-red-50 border border-red-200 rounded-sm px-3 py-2">
+                {deleteError}
+              </div>
+            )}
+
             <div className="overflow-x-auto">
               <table className="w-full text-sm text-left">
                 <thead className="text-xs text-charcoal-500 uppercase bg-charcoal-50 border-b border-charcoal-200">
@@ -1024,12 +1048,13 @@ export function AgentListings() {
                             <Edit className="h-4 w-4" />
                           </Button>
                           <Button
-                            onClick={() => alert("Opening context menu...")}
+                            onClick={() => handleUnpublish(listing)}
                             variant="ghost"
                             size="icon"
-                            className="h-8 w-8 text-charcoal-500 hover:text-charcoal-900"
+                            title="Unpublish / delete listing"
+                            className="h-8 w-8 text-charcoal-500 hover:text-red-600 hover:bg-red-50"
                           >
-                            <MoreHorizontal className="h-4 w-4" />
+                            <Trash2 className="h-4 w-4" />
                           </Button>
                         </div>
                       </td>
