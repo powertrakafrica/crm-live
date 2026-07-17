@@ -236,6 +236,8 @@ export const agentApi = {
     listings: () => fetchJson<unknown[]>("/agent/listings"),
     myListings: () => fetchJson<unknown[]>("/agent/my-listings"),
     verifications: () => fetchJson<unknown[]>("/agent/verifications"),
+    submitVerification: (verificationId: number) =>
+        fetchJson<unknown>(`/agent/verifications/${verificationId}/submit`, { method: "POST" }),
     tickets: () => fetchJson<unknown[]>("/agent/tickets"),
 };
 

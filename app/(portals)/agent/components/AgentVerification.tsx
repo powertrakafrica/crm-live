@@ -207,11 +207,17 @@ export function AgentVerification() {
         setError("");
 
         try {
-            // Attach evidence to the first pending check (or all checks)
+            // Attach each piece of field evidence to a check that still needs it
+            // (Pending/Failed). Prefer the PhotosMatch check — the captured photos
+            // are the proof that "photos match reality" — then fall back to any
+            // other Pending/Failed check so nothing is dropped.
+            const photosCheck = activeVerification.checks.find(c => c.checkType === "PhotosMatch");
             for (const item of evidence) {
-                const pendingCheck = activeVerification.checks.find(c => c.status === "Pending" || c.status === "Failed");
-                if (pendingCheck) {
-                    await verificationApi.updateCheck(activeVerification.propertyId, pendingCheck.id, {
+                const target =
+                    (photosCheck && (photosCheck.status === "Pending" || photosCheck.status === "Failed") ? photosCheck : null) ??
+                    activeVerification.checks.find(c => c.status === "Pending" || c.status === "Failed");
+                if (target) {
+                    await verificationApi.updateCheck(activeVerification.propertyId, target.id, {
                         evidenceUrl: item.url,
                         notes: `Field evidence: ${item.name}`,
                     });
@@ -221,12 +227,16 @@ export function AgentVerification() {
             if (isOffline) {
                 alert("Report saved offline. It will sync automatically when connectivity is restored.");
             } else {
-                alert("Verification report submitted to Admin queue successfully!");
+                // Real submit: advances the verification to UnderReview in the admin
+                // queue. The backend rejects (400) if any check is still Pending, so
+                // surface that message — the agent needs to finish the field checks
+                // (and the owner must have uploaded ownership docs) before submitting.
+                await agentApi.submitVerification(activeVerification.id);
                 setVerifications(prev => prev.map(v => v.id === selectedId ? { ...v, status: "Under Review" } : v));
                 setEvidence([]);
             }
-        } catch (err: any) {
-            setError(err.message || "Submit failed");
+        } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : "Submit failed");
         } finally {
             setSubmitting(false);
         }
@@ -377,8 +387,8 @@ export function AgentVerification() {
                                             <label className="flex items-start gap-3 cursor-pointer p-2 rounded-sm hover:bg-charcoal-50 transition-colors">
                                                 <input
                                                     type="checkbox"
-                                                    checked={getCheckValue(activeVerification.checks, 'DocumentAuthenticity')}
-                                                    onChange={() => handleCheckToggle('DocumentAuthenticity')}
+                                                    checked={getCheckValue(activeVerification.checks, 'PhotosMatch')}
+                                                    onChange={() => handleCheckToggle('PhotosMatch')}
                                                     className="mt-1 w-4 h-4 text-brand-600 border-charcoal-300 rounded focus:ring-brand-500"
                                                 />
                                                 <div>
@@ -389,8 +399,8 @@ export function AgentVerification() {
                                             <label className="flex items-start gap-3 cursor-pointer p-2 rounded-sm hover:bg-charcoal-50 transition-colors">
                                                 <input
                                                     type="checkbox"
-                                                    checked={getCheckValue(activeVerification.checks, 'GPSBoundary')}
-                                                    onChange={() => handleCheckToggle('GPSBoundary')}
+                                                    checked={getCheckValue(activeVerification.checks, 'BoundaryWall')}
+                                                    onChange={() => handleCheckToggle('BoundaryWall')}
                                                     className="mt-1 w-4 h-4 text-brand-600 border-charcoal-300 rounded focus:ring-brand-500"
                                                 />
                                                 <div>
