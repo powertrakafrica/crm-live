@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { MessageSquare, Calendar, Star, Flag, CheckCircle2, ChevronDown, AlertTriangle, X, User, Loader2 } from "lucide-react";
+import { MessageSquare, Sparkles, Calendar, Star, Flag, CheckCircle2, ChevronDown, AlertTriangle, X, User, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
@@ -52,6 +52,7 @@ export function ClientCommunications() {
     const [messagesLoading, setMessagesLoading] = useState(false);
     const [composerBody, setComposerBody] = useState("");
     const [sending, setSending] = useState(false);
+    const [assistantLoading, setAssistantLoading] = useState(false);
 
     // Calendar state
     const [properties, setProperties] = useState<Property[]>([]);
@@ -181,6 +182,22 @@ export function ClientCommunications() {
         }
     };
 
+    const handleMessageAssistant = async () => {
+        setAssistantLoading(true);
+        setError("");
+        try {
+            const { threadId } = await messageApi.assistant();
+            // Refresh the thread list so the new assistant thread appears, then open it.
+            const refreshed = await messageApi.threads();
+            setThreads(refreshed);
+            openThread(threadId);
+        } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : "Failed to start assistant conversation");
+        } finally {
+            setAssistantLoading(false);
+        }
+    };
+
     const handleSubmitRating = async () => {
         const booking = myBookings.find((b) => b.id === selectedBookingId);
         if (!booking || !booking.agentId) return;
@@ -275,6 +292,20 @@ export function ClientCommunications() {
             {/* Messages */}
             {activeSection === "messages" && (
                 <>
+                {!selectedThreadId && (
+                    <div className="flex justify-end">
+                        <Button
+                            onClick={handleMessageAssistant}
+                            disabled={assistantLoading}
+                            className="h-9 px-4 bg-brand-600 hover:bg-brand-700 text-white font-bold text-xs shrink-0 disabled:opacity-50"
+                        >
+                            {assistantLoading
+                                ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+                                : <Sparkles className="h-3.5 w-3.5 mr-1.5" />}
+                            Message the assistant
+                        </Button>
+                    </div>
+                )}
                 <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
                     {threadsLoading ? (
                         <div className="flex items-center justify-center h-40">

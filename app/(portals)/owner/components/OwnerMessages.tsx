@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Loader2, MessageSquare } from "lucide-react";
+import { Loader2, MessageSquare, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent } from "@/components/ui/Card";
 import { messageApi, type Message, type Thread } from "@/lib/api";
@@ -24,6 +24,7 @@ export function OwnerMessages() {
     const [messagesLoading, setMessagesLoading] = useState(false);
     const [composerBody, setComposerBody] = useState("");
     const [sending, setSending] = useState(false);
+    const [assistantLoading, setAssistantLoading] = useState(false);
 
     useEffect(() => {
         setThreadsLoading(true);
@@ -57,6 +58,22 @@ export function OwnerMessages() {
         }
     };
 
+    const handleMessageAssistant = async () => {
+        setAssistantLoading(true);
+        setError("");
+        try {
+            const { threadId } = await messageApi.assistant();
+            // Refresh the thread list so the new assistant thread appears, then open it.
+            const refreshed = await messageApi.threads();
+            setThreads(refreshed);
+            openThread(threadId);
+        } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : "Failed to start assistant conversation");
+        } finally {
+            setAssistantLoading(false);
+        }
+    };
+
     return (
         <div className="space-y-6">
             <div>
@@ -66,6 +83,21 @@ export function OwnerMessages() {
 
             {error && (
                 <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm font-medium text-red-700">{error}</div>
+            )}
+
+            {!selectedThreadId && (
+                <div className="flex justify-end">
+                    <Button
+                        onClick={handleMessageAssistant}
+                        disabled={assistantLoading}
+                        className="h-9 px-4 bg-brand-600 hover:bg-brand-700 text-white font-bold text-xs shrink-0 disabled:opacity-50"
+                    >
+                        {assistantLoading
+                            ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+                            : <Sparkles className="h-3.5 w-3.5 mr-1.5" />}
+                        Message the assistant
+                    </Button>
+                </div>
             )}
 
             {selectedThreadId ? (

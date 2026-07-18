@@ -464,6 +464,8 @@ export type Thread = {
 };
 
 export const messageApi = {
+    assistant: () =>
+        fetchJson<{ threadId: number }>("/messages/assistant", { method: "POST" }),
     createThread: (body: { participant2Id: number; propertyId?: number; threadType?: string }) =>
         fetchJson<Thread>("/messages/threads", { method: "POST", body: JSON.stringify(body) }),
     send: (threadId: number, body: string) =>
