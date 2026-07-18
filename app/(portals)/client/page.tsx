@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Search, Briefcase, LayoutDashboard, MessageSquare, Loader2 } from "lucide-react";
+import { Search, Briefcase, Building2, LayoutDashboard, MessageSquare, Loader2 } from "lucide-react";
 import { api } from "@/lib/api";
 
 import { ClientDiscovery } from "./components/ClientDiscovery";
 import { ClientServices } from "./components/ClientServices";
 import { ClientDashboard } from "./components/ClientDashboard";
 import { ClientCommunications } from "./components/ClientCommunications";
+import { ClientTenancies } from "./components/ClientTenancies";
 
 export default function ClientPortal() {
     const [activeTab, setActiveTab] = useState("discovery");
@@ -34,6 +35,7 @@ export default function ClientPortal() {
         { id: "services", label: "Marketplace", icon: Briefcase },
         { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
         { id: "communications", label: "Comms & Tools", icon: MessageSquare },
+        { id: "tenancies", label: "Tenancies", icon: Building2 },
     ];
 
     const renderContent = () => {
@@ -42,6 +44,7 @@ export default function ClientPortal() {
             case "services": return <ClientServices />;
             case "dashboard": return <ClientDashboard />;
             case "communications": return <ClientCommunications />;
+            case "tenancies": return <ClientTenancies />;
             default: return <ClientDiscovery />;
         }
     };

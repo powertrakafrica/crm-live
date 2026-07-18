@@ -292,6 +292,9 @@ export const clientApi = {
         updateAlert: (id: number, alertEnabled: boolean) =>
             fetchJson<unknown>(`/client/saved-searches/${id}`, { method: "PATCH", body: JSON.stringify({ alertEnabled }) }),
     },
+    tenancies: {
+        list: () => fetchJson<unknown[]>("/client/tenancies"),
+    },
 };
 
 // ─── Upload ──────────────────────────────────────────
