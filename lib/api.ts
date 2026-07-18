@@ -247,6 +247,12 @@ export const ownerApi = {
     },
     payments: () => fetchJson<unknown[]>("/owner/payments"),
     receipt: (id: number) => fetchJson<{ receiptUrl: string }>(`/owner/payments/${id}/receipt`),
+    tenancies: {
+        create: (body: { depositMonths: number; leaseEnd: string; leaseStart: string; monthlyRent: number; propertyId: number; tenantId: number }) =>
+            fetchJson<unknown>("/owner/tenancies", { method: "POST", body: JSON.stringify(body) }),
+        get: (id: number) => fetchJson<unknown>(`/owner/tenancies/${id}`),
+        list: () => fetchJson<unknown[]>("/owner/tenancies"),
+    },
 };
 
 // ─── Agent ───────────────────────────────────────────

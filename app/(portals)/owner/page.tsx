@@ -1,11 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { LayoutDashboard, ListPlus, MessageCircle, ShieldCheck, UserCircle, Users, Wallet } from "lucide-react";
+import { Building2, LayoutDashboard, ListPlus, MessageCircle, ShieldCheck, UserCircle, Users, Wallet } from "lucide-react";
 import { OwnerDashboard } from "./components/OwnerDashboard";
 import { OwnerLeads } from "./components/OwnerLeads";
 import { OwnerListings } from "./components/OwnerListings";
 import { OwnerMessages } from "./components/OwnerMessages";
+import { OwnerTenancies } from "./components/OwnerTenancies";
 import { OwnerVerification } from "./components/OwnerVerification";
 import { OwnerProfile } from "./components/OwnerProfile";
 import { OwnerFinance } from "./components/OwnerFinance";
@@ -20,6 +21,7 @@ export default function OwnerPortal() {
         { id: "listings", label: "My Listings", icon: ListPlus },
         { id: "verification", label: "Trust Engine", icon: ShieldCheck },
         { id: "finance", label: "Financials", icon: Wallet },
+        { id: "tenancies", label: "Tenancies", icon: Building2 },
         { id: "profile", label: "Identity Vault", icon: UserCircle },
     ];
 
@@ -31,6 +33,7 @@ export default function OwnerPortal() {
             case "listings": return <OwnerListings />;
             case "verification": return <OwnerVerification />;
             case "finance": return <OwnerFinance />;
+            case "tenancies": return <OwnerTenancies />;
             case "profile": return <OwnerProfile />;
             default: return <OwnerDashboard onViewAllLeads={() => setActiveTab("leads")} />;
         }
