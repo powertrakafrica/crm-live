@@ -5,9 +5,11 @@ import { Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
+import { RentLedger } from "@/components/RentLedger";
 import { clientApi, paymentApi } from "@/lib/api";
 
 interface Tenancy {
+    amountOwing: number;
     createdAt: string;
     depositAmount: number;
     depositMonths: number;
@@ -18,6 +20,8 @@ interface Tenancy {
     leaseSignedAt: string | null;
     leaseStart: string;
     monthlyRent: number;
+    nextRentDueAt: string | null;
+    periodsOwing: number;
     propertyId: number;
     status: "Active" | "Completed" | "Pending" | "Terminated";
     tenantId: number;
@@ -128,6 +132,22 @@ export function ClientTenancies() {
                                         <p className="text-charcoal-900 font-bold">{fmtDate(t.lastRentPaidAt)}</p>
                                     </div>
                                 </div>
+
+                                {(t.nextRentDueAt || t.periodsOwing > 0) && (
+                                    <div className="text-xs space-y-1">
+                                        {t.periodsOwing > 0 ? (
+                                            <p className="text-red-600 font-bold">
+                                                Overdue by {t.periodsOwing} month(s) — {gh(t.amountOwing)}
+                                            </p>
+                                        ) : (
+                                            <p className="text-charcoal-600">
+                                                Next rent due: {fmtDate(t.nextRentDueAt)}
+                                            </p>
+                                        )}
+                                    </div>
+                                )}
+
+                                <RentLedger load={() => clientApi.tenancies.rentPeriods(t.id)} />
 
                                 <div className="flex flex-wrap gap-2 pt-1">
                                     {!t.depositPaidAt && (

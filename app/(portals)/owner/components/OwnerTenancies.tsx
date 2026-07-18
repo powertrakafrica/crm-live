@@ -5,6 +5,7 @@ import { Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
+import { RentLedger } from "@/components/RentLedger";
 import { ownerApi } from "@/lib/api";
 
 interface OwnerProperty {
@@ -232,19 +233,26 @@ export function OwnerTenancies() {
                                 {tenancies.map((t) => {
                                     const property = ownerProperties.find((p) => p.id === t.propertyId);
                                     return (
-                                        <tr key={t.id} className="border-b border-charcoal-50">
-                                            <td className="px-3 py-2 text-charcoal-600">{t.id}</td>
-                                            <td className="px-3 py-2 text-charcoal-600">{property?.title ?? `#${t.propertyId}`}</td>
-                                            <td className="px-3 py-2 text-charcoal-600">#{t.tenantId}</td>
-                                            <td className="px-3 py-2 text-charcoal-900 font-medium">{gh(t.monthlyRent)}</td>
-                                            <td className="px-3 py-2 text-charcoal-600">{gh(t.depositAmount)} ({t.depositMonths}m)</td>
-                                            <td className="px-3 py-2">
-                                                <Badge variant={STATUS_BADGE_VARIANT[t.status]} className="text-[10px]">{t.status}</Badge>
-                                            </td>
-                                            <td className="px-3 py-2 text-charcoal-600">{t.depositPaidAt ? "Yes" : "No"}</td>
-                                            <td className="px-3 py-2 text-charcoal-600">{t.leaseSignedAt ? "Yes" : "No"}</td>
-                                            <td className="px-3 py-2 text-charcoal-600">{fmtDate(t.lastRentPaidAt)}</td>
-                                        </tr>
+                                        <>
+                                            <tr key={t.id} className="border-b border-charcoal-50">
+                                                <td className="px-3 py-2 text-charcoal-600">{t.id}</td>
+                                                <td className="px-3 py-2 text-charcoal-600">{property?.title ?? `#${t.propertyId}`}</td>
+                                                <td className="px-3 py-2 text-charcoal-600">#{t.tenantId}</td>
+                                                <td className="px-3 py-2 text-charcoal-900 font-medium">{gh(t.monthlyRent)}</td>
+                                                <td className="px-3 py-2 text-charcoal-600">{gh(t.depositAmount)} ({t.depositMonths}m)</td>
+                                                <td className="px-3 py-2">
+                                                    <Badge variant={STATUS_BADGE_VARIANT[t.status]} className="text-[10px]">{t.status}</Badge>
+                                                </td>
+                                                <td className="px-3 py-2 text-charcoal-600">{t.depositPaidAt ? "Yes" : "No"}</td>
+                                                <td className="px-3 py-2 text-charcoal-600">{t.leaseSignedAt ? "Yes" : "No"}</td>
+                                                <td className="px-3 py-2 text-charcoal-600">{fmtDate(t.lastRentPaidAt)}</td>
+                                            </tr>
+                                            <tr key={`ledger-${t.id}`}>
+                                                <td colSpan={9} className="px-3 py-2 bg-charcoal-50/40">
+                                                    <RentLedger load={() => ownerApi.tenancies.rentPeriods(t.id)} />
+                                                </td>
+                                            </tr>
+                                        </>
                                     );
                                 })}
                             </tbody>

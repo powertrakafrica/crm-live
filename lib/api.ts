@@ -33,6 +33,20 @@ export function fileProxyUrl(spacesUrl: string | null | undefined): string | nul
     }
 }
 
+export interface RentPeriod {
+    amountDue: number;
+    dueReminderSentAt: string | null;
+    id: number;
+    overdueReminderSentAt: string | null;
+    overdueReminderStage: number;
+    paidAt: string | null;
+    paymentId: number | null;
+    periodEnd: string;
+    periodStart: string;
+    status: "Due" | "Overdue" | "Paid";
+    tenancyId: number;
+}
+
 // Shape returned by GET /properties/:id/documents (property.service listPropertyDocuments).
 export interface PropertyDocument {
     createdAt: string;
@@ -252,6 +266,7 @@ export const ownerApi = {
             fetchJson<unknown>("/owner/tenancies", { method: "POST", body: JSON.stringify(body) }),
         get: (id: number) => fetchJson<unknown>(`/owner/tenancies/${id}`),
         list: () => fetchJson<unknown[]>("/owner/tenancies"),
+        rentPeriods: (id: number) => fetchJson<RentPeriod[]>(`/owner/tenancies/${id}/rent-periods`),
     },
 };
 
@@ -294,6 +309,7 @@ export const clientApi = {
     },
     tenancies: {
         list: () => fetchJson<unknown[]>("/client/tenancies"),
+        rentPeriods: (id: number) => fetchJson<RentPeriod[]>(`/client/tenancies/${id}/rent-periods`),
     },
 };
 
