@@ -222,6 +222,18 @@ export const adminApi = {
 // ─── Owner ───────────────────────────────────────────
 
 export const ownerApi = {
+    leads: {
+        list: (params: { limit?: number; page?: number; propertyId?: number; search?: string; status?: string }) => {
+            const sp = new URLSearchParams();
+            if (params.page !== undefined) sp.set("page", String(params.page));
+            if (params.limit !== undefined) sp.set("limit", String(params.limit));
+            if (params.propertyId !== undefined) sp.set("propertyId", String(params.propertyId));
+            if (params.search !== undefined) sp.set("search", params.search);
+            if (params.status !== undefined) sp.set("status", params.status);
+            return fetchJson<{ data: unknown[]; limit: number; page: number; total: number }>(`/owner/leads?${sp.toString()}`);
+        },
+        summary: () => fetchJson<{ byStatus: Record<string, number>; total: number }>("/owner/leads/summary"),
+    },
     properties: () => fetchJson<unknown[]>("/owner/properties"),
     analytics: () => fetchJson<unknown>("/owner/analytics"),
     verifications: () => fetchJson<unknown[]>("/owner/verifications"),

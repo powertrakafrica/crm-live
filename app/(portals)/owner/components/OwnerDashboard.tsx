@@ -40,7 +40,7 @@ interface UpcomingBooking {
     status: string;
 }
 
-export function OwnerDashboard() {
+export function OwnerDashboard({ onViewAllLeads }: { onViewAllLeads?: () => void }) {
     const [analytics, setAnalytics] = useState<Analytics | null>(null);
     const [loading, setLoading] = useState(true);
     const [ownerProperties, setOwnerProperties] = useState<{ id: number; title: string }[]>([]);
@@ -51,12 +51,18 @@ export function OwnerDashboard() {
     const [availLoading, setAvailLoading] = useState(false);
     const [availSaving, setAvailSaving] = useState(false);
     const [newBlackout, setNewBlackout] = useState({ endAt: "", reason: "", startAt: "" });
+    const [leadsSummary, setLeadsSummary] = useState<{ byStatus: Record<string, number>; total: number } | null>(null);
+    const [leadsLoading, setLeadsLoading] = useState(true);
 
     useEffect(() => {
         ownerApi.analytics()
             .then((data) => setAnalytics(data as Analytics))
             .catch(() => setAnalytics(null))
             .finally(() => setLoading(false));
+        ownerApi.leads.summary()
+            .then((data) => setLeadsSummary(data))
+            .catch(() => setLeadsSummary(null))
+            .finally(() => setLeadsLoading(false));
         // Load the owner's OWN properties (owner-scoped /owner/properties) for the
         // availability editor selector. Editing another owner's property 403s, so
         // do NOT use the public propertiesApi.list() here.
@@ -290,10 +296,28 @@ export function OwnerDashboard() {
                             </CardTitle>
                         </CardHeader>
                         <CardContent className="p-6 flex-1">
-                            <p className="text-sm text-charcoal-500 font-medium">Lead data will be integrated in Phase 3.</p>
+                            {leadsLoading ? (
+                                <div className="flex items-center justify-center py-6">
+                                    <Loader2 className="h-5 w-5 animate-spin text-charcoal-400" />
+                                </div>
+                            ) : leadsSummary && leadsSummary.total > 0 ? (
+                                <div className="space-y-2">
+                                    <p className="text-2xl font-bold text-charcoal-900">
+                                        {leadsSummary.total}
+                                        <span className="text-sm font-medium text-charcoal-500 ml-1">leads</span>
+                                    </p>
+                                    <div className="space-y-1 text-xs text-charcoal-600">
+                                        <div className="flex justify-between"><span>New</span><span className="font-semibold">{leadsSummary.byStatus.New ?? 0}</span></div>
+                                        <div className="flex justify-between"><span>Viewing scheduled</span><span className="font-semibold">{leadsSummary.byStatus.ViewingScheduled ?? 0}</span></div>
+                                        <div className="flex justify-between"><span>Closed won</span><span className="font-semibold">{leadsSummary.byStatus.ClosedWon ?? 0}</span></div>
+                                    </div>
+                                </div>
+                            ) : (
+                                <p className="text-sm text-charcoal-500 font-medium">No leads on your properties yet.</p>
+                            )}
                         </CardContent>
                         <div className="p-4 border-t border-charcoal-100 bg-charcoal-50 text-center">
-                            <Button variant="ghost" className="text-sm font-bold text-brand-600 hover:text-brand-700 w-full">View All Leads <ExternalLink className="h-4 w-4 ml-1" /></Button>
+                            <Button variant="ghost" onClick={onViewAllLeads} className="text-sm font-bold text-brand-600 hover:text-brand-700 w-full">View All Leads <ExternalLink className="h-4 w-4 ml-1" /></Button>
                         </div>
                     </Card>
                 </div>
