@@ -15,12 +15,18 @@ interface PaymentItem {
     createdAt: string;
     paidAt: string | null;
     propertyId: number | null;
+    currency: string;
+    paymentMethod: string | null;
+    provider: string;
+    providerStatus: string | null;
+    receiptUrl: string | null;
 }
 
 export function OwnerFinance() {
     const [transactions, setTransactions] = useState<PaymentItem[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
+    const [receiptLoadingId, setReceiptLoadingId] = useState<number | null>(null);
 
     const [ownerProperties, setOwnerProperties] = useState<{ id: number; title: string }[]>([]);
     const [selectedPropertyId, setSelectedPropertyId] = useState<string>("");
@@ -61,6 +67,19 @@ export function OwnerFinance() {
                 setBoostFeeError(err instanceof Error ? err.message : "Boost pricing not configured");
             });
     }, [selectedPropertyId]);
+
+    const handleReceipt = async (txn: PaymentItem) => {
+        if (receiptLoadingId === txn.id) return;
+        setReceiptLoadingId(txn.id);
+        try {
+            const { receiptUrl } = await ownerApi.receipt(txn.id);
+            window.open(receiptUrl, "_blank");
+        } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : "Failed to generate receipt");
+        } finally {
+            setReceiptLoadingId(null);
+        }
+    };
 
     return (
         <div className="space-y-6">
@@ -209,12 +228,29 @@ export function OwnerFinance() {
                                             <td className="px-6 py-4 text-right">
                                                 <span className="font-bold text-brand-700">GH₵ {(txn.amount / 100).toLocaleString()}</span>
                                                 <div className="mt-1 flex justify-end">
-                                                    <Badge variant="verified" className="shadow-none px-1.5 py-0 h-4 text-[9px]"><CheckCircle2 className="h-2 w-2 mr-1" /> Paid</Badge>
+                                                    {txn.providerStatus === "success" ? (
+                                                        <Badge variant="verified" className="shadow-none px-1.5 py-0 h-4 text-[9px]"><CheckCircle2 className="h-2 w-2 mr-1" /> Paid</Badge>
+                                                    ) : txn.providerStatus === "failed" ? (
+                                                        <Badge variant="destructive" className="shadow-none px-1.5 py-0 h-4 text-[9px]">Failed</Badge>
+                                                    ) : (
+                                                        <Badge variant="secondary" className="shadow-none px-1.5 py-0 h-4 text-[9px]">Pending</Badge>
+                                                    )}
                                                 </div>
                                             </td>
                                             <td className="px-6 py-4 text-center">
-                                                <Button variant="ghost" size="icon" className="h-8 w-8 text-charcoal-500 hover:text-brand-600 hover:bg-brand-50" onClick={() => alert("Downloading PDF receipt...")}>
-                                                    <Download className="h-4 w-4" />
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="h-8 w-8 text-charcoal-500 hover:text-brand-600 hover:bg-brand-50"
+                                                    disabled={txn.providerStatus !== "success" || receiptLoadingId === txn.id}
+                                                    onClick={() => handleReceipt(txn)}
+                                                    title={txn.providerStatus === "success" ? "Download receipt" : "Receipt available once payment is confirmed"}
+                                                >
+                                                    {receiptLoadingId === txn.id ? (
+                                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                                    ) : (
+                                                        <Download className="h-4 w-4" />
+                                                    )}
                                                 </Button>
                                             </td>
                                         </tr>

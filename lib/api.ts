@@ -226,6 +226,7 @@ export const ownerApi = {
     analytics: () => fetchJson<unknown>("/owner/analytics"),
     verifications: () => fetchJson<unknown[]>("/owner/verifications"),
     payments: () => fetchJson<unknown[]>("/owner/payments"),
+    receipt: (id: number) => fetchJson<{ receiptUrl: string }>(`/owner/payments/${id}/receipt`),
 };
 
 // ─── Agent ───────────────────────────────────────────
