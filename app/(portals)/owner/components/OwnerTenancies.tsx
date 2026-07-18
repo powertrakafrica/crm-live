@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -233,8 +233,8 @@ export function OwnerTenancies() {
                                 {tenancies.map((t) => {
                                     const property = ownerProperties.find((p) => p.id === t.propertyId);
                                     return (
-                                        <>
-                                            <tr key={t.id} className="border-b border-charcoal-50">
+                                        <Fragment key={t.id}>
+                                            <tr className="border-b border-charcoal-50">
                                                 <td className="px-3 py-2 text-charcoal-600">{t.id}</td>
                                                 <td className="px-3 py-2 text-charcoal-600">{property?.title ?? `#${t.propertyId}`}</td>
                                                 <td className="px-3 py-2 text-charcoal-600">#{t.tenantId}</td>
@@ -252,7 +252,7 @@ export function OwnerTenancies() {
                                                     <RentLedger load={() => ownerApi.tenancies.rentPeriods(t.id)} />
                                                 </td>
                                             </tr>
-                                        </>
+                                        </Fragment>
                                     );
                                 })}
                             </tbody>
