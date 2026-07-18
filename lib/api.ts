@@ -260,6 +260,8 @@ export const clientApi = {
             fetchJson<unknown>("/client/saved-searches", { method: "POST", body: JSON.stringify(body) }),
         delete: (id: number) => fetchJson<{ message: string }>(`/client/saved-searches/${id}`, { method: "DELETE" }),
         list: () => fetchJson<unknown[]>("/client/saved-searches"),
+        update: (id: number, body: { alertEnabled?: boolean; name?: string; queryJson?: Record<string, string> }) =>
+            fetchJson<unknown>(`/client/saved-searches/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
         updateAlert: (id: number, alertEnabled: boolean) =>
             fetchJson<unknown>(`/client/saved-searches/${id}`, { method: "PATCH", body: JSON.stringify({ alertEnabled }) }),
     },
