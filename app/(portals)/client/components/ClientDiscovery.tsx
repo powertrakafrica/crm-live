@@ -84,8 +84,8 @@ export function ClientDiscovery() {
     const mapMarkers = useMemo(() => {
         return filteredProperties
             .map((p) => ({
-                lat: Number(p.gpsLatitude),
-                lng: Number(p.gpsLongitude),
+                lat: Number(p.gpsLatitude ?? undefined),
+                lng: Number(p.gpsLongitude ?? undefined),
                 label: `${p.title} — GH₵ ${p.price.toLocaleString()}${p.pricePeriod ? ` / ${p.pricePeriod}` : ""}`,
                 href: `/property/${p.id}`,
             }))
