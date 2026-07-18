@@ -34,6 +34,7 @@ interface MapMarker {
     lat: number;
     lng: number;
     label?: string;
+    href?: string;
 }
 
 interface InteractiveMapProps {
@@ -186,7 +187,17 @@ export default function InteractiveMap({
                 />
                 {markers?.map((m) => (
                     <Marker key={`${m.lat}-${m.lng}`} position={[m.lat, m.lng]}>
-                        <Popup>{m.label || "Property"}</Popup>
+                        <Popup>
+                            {m.label || "Property"}
+                            {m.href && (
+                                <a
+                                    href={m.href}
+                                    className="block mt-1 text-brand-600 font-semibold hover:text-brand-700"
+                                >
+                                    View details →
+                                </a>
+                            )}
+                        </Popup>
                     </Marker>
                 ))}
                 <MapController
