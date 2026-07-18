@@ -45,7 +45,7 @@ const REQUIRED_DOCS: Record<string, { label: string; checkType: string; icon: ty
 
 export function OwnerVerification() {
     const [selectedPropertyId, setSelectedPropertyId] = useState<number | null>(null);
-    const [selectedTier, setSelectedTier] = useState<"basic" | "standard" | "premium" | null>(null);
+    const [selectedTier, setSelectedTier] = useState<"Basic" | "Premium" | "Standard" | null>(null);
     const [properties, setProperties] = useState<OwnerVerificationItem[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
@@ -54,18 +54,23 @@ export function OwnerVerification() {
     const [submitting, setSubmitting] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    useEffect(() => {
-        ownerApi.verifications()
-            .then((data: any) => {
-                const mapped = (data ?? []).map((v: any) => ({
-                    ...v,
-                    status: mapStatusToStage(v.status),
-                }));
+    const refreshVerifications = () => {
+        ownerApi.verifications.list()
+            .then((data: unknown[]) => {
+                const mapped = (data ?? []).map((v) => {
+                    const item = v as OwnerVerificationItem;
+                    return { ...item, status: mapStatusToStage(item.status) };
+                });
                 setProperties(mapped);
-                if (mapped.length > 0) setSelectedPropertyId(mapped[0].id);
+                if (mapped.length > 0 && selectedPropertyId === null) setSelectedPropertyId(mapped[0].id);
             })
-            .catch((err: any) => setError(err.message || "Failed to load verifications"))
+            .catch((err: unknown) => setError(err instanceof Error ? err.message : "Failed to load verifications"))
             .finally(() => setLoading(false));
+    };
+
+    useEffect(() => {
+        refreshVerifications();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const selectedProperty = properties.find(p => p.id === selectedPropertyId);
@@ -126,13 +131,18 @@ export function OwnerVerification() {
         setSubmitting(true);
         setError("");
         try {
-            // In a real flow this would trigger the verification pipeline
-            // For now we just show a success state
-            setProperties(prev => prev.map(p =>
-                p.id === selectedProperty.id ? { ...p, status: "admin_review" as any, tier: selectedTier } : p
-            ));
-        } catch (err: any) {
-            setError(err.message || "Submit failed");
+            const result = await ownerApi.verifications.submit(selectedProperty.id, {
+                provider: "Paystack",
+                tier: selectedTier,
+            });
+            if (result.checkoutUrl) {
+                window.location.href = result.checkoutUrl;
+                return; // redirecting; don't clear submitting
+            }
+            // Basic (free) or Hubtel mobile-money null-checkoutUrl: refresh + show success inline.
+            await refreshVerifications();
+        } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : "Submit failed");
         } finally {
             setSubmitting(false);
         }
@@ -180,7 +190,7 @@ export function OwnerVerification() {
                                 key={p.id}
                                 onClick={() => {
                                     setSelectedPropertyId(p.id);
-                                    setSelectedTier(p.tier as any);
+                                    setSelectedTier(p.tier as "Basic" | "Premium" | "Standard" | null);
                                 }}
                                 className={`p-4 border-b border-charcoal-100 cursor-pointer transition-colors relative ${selectedPropertyId === p.id ? "bg-brand-50 border-l-4 border-l-brand-600" : "hover:bg-charcoal-50 border-l-4 border-l-transparent"}`}
                             >
@@ -211,6 +221,11 @@ export function OwnerVerification() {
                             <Card className="border-charcoal-200 shadow-sm rounded-sm overflow-hidden">
                                 <div className="p-4 border-b border-charcoal-100 bg-white">
                                     <h3 className="font-bold text-charcoal-900 line-clamp-1">{selectedProperty.propertyTitle}</h3>
+                                    {selectedProperty.tier && (
+                                        <Badge variant="verified" className="ml-2 text-[10px] uppercase tracking-widest">
+                                            {selectedProperty.tier} Tier
+                                        </Badge>
+                                    )}
                                     <p className="text-xs text-brand-600 font-bold uppercase tracking-widest mt-0.5">Application Track</p>
                                 </div>
                                 <CardContent className="p-6 bg-charcoal-50">
@@ -262,21 +277,21 @@ export function OwnerVerification() {
                                 <>
                                     <h3 className="font-heading font-bold text-lg text-charcoal-950 px-1">Select Verification Tier</h3>
                                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                        {[
-                                            { id: "basic", name: "Basic", price: "Free", desc: "Identity match only.", features: ["ID Verification", "Standard Search"] },
-                                            { id: "standard", name: "Standard", price: "GH₵ 150", desc: "Document check.", features: ["ID Match", "Document Auth", "+15% Search Boost"] },
-                                            { id: "premium", name: "Premium", price: "GH₵ 500", desc: "Physical site audit.", features: ["Agent Visit", "TEPS Badge", "+50% Search Boost", "Virtual Tour Setup"] }
-                                        ].map(tier => (
+                                        {([
+                                            { id: "Basic", name: "Basic", price: "Free", desc: "Identity match only.", features: ["ID Verification", "Standard Search"] },
+                                            { id: "Standard", name: "Standard", price: "GH₵ 150", desc: "Document check.", features: ["ID Match", "Document Auth", "+15% Search Boost"] },
+                                            { id: "Premium", name: "Premium", price: "GH₵ 500", desc: "Physical site audit.", features: ["Agent Visit", "TEPS Badge", "+50% Search Boost", "Virtual Tour Setup"] }
+                                        ] as const).map(tier => (
                                             <div
                                                 key={tier.id}
                                                 onClick={() => {
-                                                    if (currentStageIndex === 0) setSelectedTier(tier.id as any);
+                                                    if (currentStageIndex === 0) setSelectedTier(tier.id);
                                                 }}
                                                 className={`border-2 rounded-sm p-5 transition-all flex flex-col h-full relative overflow-hidden ${
                                                     selectedTier === tier.id ? "border-brand-600 shadow-sm bg-brand-50/30" : "border-charcoal-200 bg-white"
                                                 } ${currentStageIndex === 0 ? "cursor-pointer hover:border-brand-300" : "opacity-70 cursor-not-allowed"}`}
                                             >
-                                                {tier.id === "premium" && <div className="absolute top-0 right-0 bg-amber-500 text-white text-[9px] font-bold uppercase tracking-widest px-6 py-1 translate-x-4 translate-y-2 rotate-45 shadow-sm">Popular</div>}
+                                                {tier.id === "Premium" && <div className="absolute top-0 right-0 bg-amber-500 text-white text-[9px] font-bold uppercase tracking-widest px-6 py-1 translate-x-4 translate-y-2 rotate-45 shadow-sm">Popular</div>}
                                                 <div className="flex justify-between items-start mb-2">
                                                     <h4 className={`font-bold text-lg ${selectedTier === tier.id ? "text-brand-900" : "text-charcoal-900"}`}>{tier.name}</h4>
                                                     <span className="font-bold text-sm bg-charcoal-100 text-charcoal-700 px-2 py-0.5 rounded-sm">{tier.price}</span>
@@ -292,7 +307,7 @@ export function OwnerVerification() {
                                     </div>
 
                                     {/* Document Submission */}
-                                    {selectedTier && selectedTier !== "basic" && (
+                                    {selectedTier && selectedTier !== "Basic" && (
                                         <div className="animate-in fade-in zoom-in-95 duration-200 space-y-4">
                                             <h3 className="font-heading font-bold text-lg text-charcoal-950 px-1">Required Documents</h3>
                                             <input

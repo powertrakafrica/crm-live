@@ -236,7 +236,15 @@ export const ownerApi = {
     },
     properties: () => fetchJson<unknown[]>("/owner/properties"),
     analytics: () => fetchJson<unknown>("/owner/analytics"),
-    verifications: () => fetchJson<unknown[]>("/owner/verifications"),
+    verifications: {
+        list: () => fetchJson<unknown[]>("/owner/verifications"),
+        submit: (verificationId: number, body: { email?: string; paymentMethod?: string; phoneNumber?: string; provider?: "Hubtel" | "Paystack"; tier: "Basic" | "Premium" | "Standard" }) =>
+            fetchJson<{
+                checkoutUrl: string | null;
+                payment: { id: number; providerStatus: string | null } | null;
+                status: "awaiting_payment" | "submitted";
+            }>(`/owner/verifications/${verificationId}/submit`, { method: "POST", body: JSON.stringify(body) }),
+    },
     payments: () => fetchJson<unknown[]>("/owner/payments"),
     receipt: (id: number) => fetchJson<{ receiptUrl: string }>(`/owner/payments/${id}/receipt`),
 };
