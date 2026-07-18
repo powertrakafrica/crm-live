@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { Search, Map as MapIcon, ShieldCheck, Home, MapPin, SlidersHorizontal, ArrowRight } from "lucide-react";
-import { Button } from "@/components/ui/Button";
+import { useEffect, useMemo, useState } from "react";
+import { Search, Map as MapIcon, ShieldCheck, Home, MapPin, SlidersHorizontal } from "lucide-react";
 import PropertyCard from "@/components/PropertyCard";
+import InteractiveMap from "@/components/InteractiveMap";
 import { propertiesApi } from "@/lib/api";
 import { SavedSearches } from "./SavedSearches";
 
@@ -19,6 +19,8 @@ interface Property {
     isVerified: boolean;
     category: string;
     district?: string;
+    gpsLatitude?: string;
+    gpsLongitude?: string;
 }
 
 const mapProperty = (p: unknown): Property => {
@@ -29,6 +31,8 @@ const mapProperty = (p: unknown): Property => {
         bedrooms: Number(prop.bedrooms ?? 0),
         category: String(prop.category ?? ""),
         district: prop.district as string | undefined,
+        gpsLatitude: prop.gpsLatitude as string | undefined,
+        gpsLongitude: prop.gpsLongitude as string | undefined,
         id: Number(prop.id),
         images,
         isVerified: Boolean(prop.isVerified ?? false),
@@ -76,6 +80,17 @@ export function ClientDiscovery() {
         }
         return true;
     });
+
+    const mapMarkers = useMemo(() => {
+        return filteredProperties
+            .map((p) => ({
+                lat: Number(p.gpsLatitude),
+                lng: Number(p.gpsLongitude),
+                label: `${p.title} — GH₵ ${p.price.toLocaleString()}${p.pricePeriod ? ` / ${p.pricePeriod}` : ""}`,
+                href: `/property/${p.id}`,
+            }))
+            .filter((m) => Number.isFinite(m.lat) && Number.isFinite(m.lng));
+    }, [filteredProperties]);
 
     const getImageUrl = (p: Property) => {
         const primary = p.images?.find((img: any) => img.isPrimary);
@@ -159,36 +174,20 @@ export function ClientDiscovery() {
 
             {/* Content Area */}
             {searchMode === "map" ? (
-                <div className="h-[650px] w-full bg-[#f8f9fa] rounded-sm border border-charcoal-200 relative flex flex-col items-center justify-center text-center animate-in fade-in zoom-in-95 duration-500 shadow-inner overflow-hidden">
-                    {/* Simulated Map Background Details */}
-                    <div className="absolute inset-0 opacity-[0.03] pointer-events-none" style={{ backgroundImage: "url('https://www.transparenttextures.com/patterns/cubes.png')" }}></div>
-                    <div className="absolute inset-0 bg-gradient-to-br from-brand-100/20 to-transparent"></div>
-
-                    {/* Decorative Map Rings */}
-                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 border border-brand-200 rounded-full opacity-20 animate-pulse"></div>
-                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 border border-brand-300 rounded-full opacity-30"></div>
-
-                    <div className="relative z-10 bg-white/80 backdrop-blur-md p-8 rounded-sm shadow-xl border border-white max-w-lg mx-4">
-                        <div className="h-16 w-16 bg-brand-100 rounded-full flex items-center justify-center mx-auto mb-6">
-                            <MapIcon className="h-8 w-8 text-brand-600" />
-                        </div>
-                        <h3 className="text-2xl font-heading font-bold text-charcoal-900 mb-2">Digital Feel Map Layout</h3>
-                        <p className="text-charcoal-600 text-sm leading-relaxed mb-6">
-                            In a production environment, this integrates `Leaflet.js` to render the interactive borders of Ghana's constituencies, pinging dynamic clusters of <strong className="text-brand-700">TEPS Verified Properties</strong>.
+                <div className="animate-in fade-in zoom-in-95 duration-500">
+                    <div className="mb-2 flex items-center justify-between">
+                        <p className="text-sm font-medium text-charcoal-600">
+                            {mapMarkers.length > 0
+                                ? `${mapMarkers.length} of ${filteredProperties.length} properties shown on map`
+                                : `${filteredProperties.length} properties found`}
                         </p>
-
-                        <div className="bg-charcoal-50 p-4 border border-charcoal-100 rounded-sm mb-6 flex justify-between items-center text-left">
-                            <div>
-                                <p className="text-xs font-bold text-charcoal-400 uppercase tracking-wider mb-1">Active Matching Results</p>
-                                <p className="text-lg font-bold text-charcoal-900">{filteredProperties.length} Properties Found</p>
-                            </div>
-                            <ShieldCheck className="h-8 w-8 text-brand-300 opacity-50" />
-                        </div>
-
-                        <Button onClick={() => setSearchMode("list")} className="w-full bg-brand-600 hover:bg-brand-700 text-white font-bold h-12 shadow-sm">
-                            Switch to List View <ArrowRight className="ml-2 h-4 w-4" />
-                        </Button>
+                        {filteredProperties.length > mapMarkers.length && (
+                            <p className="text-xs text-charcoal-400">
+                                {filteredProperties.length - mapMarkers.length} listing{filteredProperties.length - mapMarkers.length === 1 ? "" : "s"} without GPS coordinates
+                            </p>
+                        )}
                     </div>
+                    <InteractiveMap markers={mapMarkers} height="h-[650px]" />
                 </div>
             ) : (
                 <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
