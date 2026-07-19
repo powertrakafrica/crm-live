@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { messageApi, propertiesApi, bookingApi, ratingApi, reportApi, type BookingSlot, type Message, type Thread } from "@/lib/api";
+import { useRealtimeThread } from "@/lib/hooks/useRealtimeThread";
 
 interface Property {
     id: number;
@@ -135,6 +136,13 @@ export function ClientCommunications() {
             setSelectedTime(null);
         }
     }, [selectedPropertyId, activeSection]);
+
+    // Live in-app message push (M1): append bot/human messages for the open
+    // thread as they arrive over the SSE stream (deduped by id — handleSend
+    // already appends the sent message optimistically at line 172).
+    useRealtimeThread(selectedThreadId, (m) => {
+        setThreadMessages((prev) => (prev.some((x) => x.id === m.id) ? prev : [...prev, m]));
+    });
 
     const handleBookSlot = async () => {
         if (!selectedPropertyId || !selectedSlot || !selectedTime) return;

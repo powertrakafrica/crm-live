@@ -5,6 +5,7 @@ import { Loader2, MessageSquare, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent } from "@/components/ui/Card";
 import { messageApi, type Message, type Thread } from "@/lib/api";
+import { useRealtimeThread } from "@/lib/hooks/useRealtimeThread";
 
 function formatThreadTime(iso: string | null) {
     if (!iso) return "";
@@ -33,6 +34,13 @@ export function OwnerMessages() {
             .catch((err: unknown) => setError(err instanceof Error ? err.message : "Failed to load messages"))
             .finally(() => setThreadsLoading(false));
     }, []);
+
+    // Live in-app message push (M1): append bot/human messages for the open
+    // thread as they arrive over the SSE stream (deduped by id — handleSend
+    // already appends the sent message optimistically at line 51).
+    useRealtimeThread(selectedThreadId, (m) => {
+        setThreadMessages((prev) => (prev.some((x) => x.id === m.id) ? prev : [...prev, m]));
+    });
 
     const openThread = (threadId: number) => {
         setSelectedThreadId(threadId);
