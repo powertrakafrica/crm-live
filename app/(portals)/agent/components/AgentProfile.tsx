@@ -136,8 +136,12 @@ export function AgentProfile() {
 
   const refreshProfile = async () => {
     try {
-      const user = (await profileApi.me()) as UserProfile;
+      const [user, agent] = await Promise.all([
+        profileApi.me() as Promise<UserProfile>,
+        profileApi.agentProfile() as Promise<AgentProfile | null>,
+      ]);
       setUserProfile(user);
+      setAgentProfile(agent ?? null);
     } catch {
       // silent
     }
