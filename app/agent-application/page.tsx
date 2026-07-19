@@ -37,6 +37,11 @@ interface ApplicationForm {
     experienceYears: string;
     hasRealEstateExperience: boolean;
     educationLevel: string;
+    bankName: string;
+    bankAccountName: string;
+    bankAccountNumber: string;
+    education: string;
+    fieldOfStudy: string;
     skills: string;
     coverageAreas: string;
     availability: string;
@@ -55,6 +60,8 @@ const EMPTY_FORM: ApplicationForm = {
     email: "", phone: "", residentialAddress: "", digitalAddress: "",
     emergencyContactName: "", emergencyContactPhone: "", emergencyContactRelationship: "",
     experienceYears: "", hasRealEstateExperience: false, educationLevel: "", skills: "",
+    bankName: "", bankAccountName: "", bankAccountNumber: "",
+    education: "", fieldOfStudy: "",
     coverageAreas: "", availability: "", hasSmartphone: false, transportMeans: "",
     internetReliability: "", criminalConviction: false, willingToTrain: false,
     referralSource: "", ghanaCardNumber: "", declarationAccepted: false,
@@ -151,6 +158,11 @@ export default function AgentApplicationPage() {
                 willingToTrain: form.willingToTrain,
                 referralSource: form.referralSource.trim() || undefined,
                 declarationAccepted: form.declarationAccepted,
+                bankAccountName: form.bankAccountName.trim() || undefined,
+                bankAccountNumber: form.bankAccountNumber.trim() || undefined,
+                bankName: form.bankName.trim() || undefined,
+                education: form.education.trim() || undefined,
+                fieldOfStudy: form.fieldOfStudy.trim() || undefined,
             };
             await profileApi.agentApplication(body);
 
@@ -315,6 +327,13 @@ export default function AgentApplicationPage() {
                                 <Field label="Transport Means"><input className={inputCls} value={form.transportMeans} onChange={(e) => set("transportMeans", e.target.value)} placeholder="e.g. Motorbike, Car" /></Field>
                                 <Field label="Internet Reliability"><input className={inputCls} value={form.internetReliability} onChange={(e) => set("internetReliability", e.target.value)} placeholder="e.g. Stable, Intermittent" /></Field>
                                 <Field label="Referral Source"><input className={inputCls} value={form.referralSource} onChange={(e) => set("referralSource", e.target.value)} placeholder="How did you hear about us?" /></Field>
+                                <Field label="Bank Name"><input className={inputCls} value={form.bankName} onChange={(e) => set("bankName", e.target.value)} placeholder="e.g. Ecobank" /></Field>
+                                <Field label="Bank Account Name"><input className={inputCls} value={form.bankAccountName} onChange={(e) => set("bankAccountName", e.target.value)} /></Field>
+                                <Field label="Bank Account Number"><input className={inputCls} value={form.bankAccountNumber} onChange={(e) => set("bankAccountNumber", e.target.value)} /></Field>
+                                <Field label="Field of Study"><input className={inputCls} value={form.fieldOfStudy} onChange={(e) => set("fieldOfStudy", e.target.value)} placeholder="e.g. Land Economy" /></Field>
+                                <Field label="Education (free text)" full>
+                                    <textarea className={inputCls} rows={2} value={form.education} onChange={(e) => set("education", e.target.value)} placeholder="e.g. BSc Land Economy, KNUST (2018)" />
+                                </Field>
                                 <label className="sm:col-span-2 flex items-center gap-3 mt-1 cursor-pointer">
                                     <input type="checkbox" className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500" checked={form.hasRealEstateExperience} onChange={(e) => set("hasRealEstateExperience", e.target.checked)} />
                                     <span className="text-sm font-medium text-slate-700">I have prior real estate experience</span>
