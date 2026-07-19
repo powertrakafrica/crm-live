@@ -24,28 +24,42 @@ import {
 } from "@/components/ui/Card";
 import { profileApi, uploadApi, fileProxyUrl, type AgentDocument } from "@/lib/api";
 import { CoveragePicker } from "./CoveragePicker";
+import { EditPersonalInfoModal } from "./EditPersonalInfoModal";
 import { coverageToItems, itemsToCoverage, type CoverageItem } from "@/lib/coverage";
 
-interface UserProfile {
+export interface UserProfile {
   avatarUrl: string | null;
+  dateOfBirth: string | null;
+  digitalAddress: string | null;
   documents?: AgentDocument[];
   email: string;
+  emergencyContactName: string | null;
+  emergencyContactPhone: string | null;
+  emergencyContactRelationship: string | null;
+  firstName: string | null;
   fullName: string;
+  gender: string | null;
   ghanaCardNumber: string | null;
   id: number;
   isVerified: boolean;
+  nationality: string | null;
+  otherNames: string | null;
   phone: string | null;
+  residentialAddress: string | null;
   role: string;
+  surname: string | null;
 }
 
-interface AgentProfile {
+export interface AgentProfile {
   agentId: number;
   coverage?: { items: CoverageItem[] };
+  experienceLevel: string | null;
   isOnboardingComplete: boolean;
   languages: string | null;
   momoNetwork: string | null;
   momoNumber: string | null;
   specialties: string | null;
+  verificationStatus?: "Approved" | "Pending" | "Rejected" | "Suspended" | null;
 }
 
 const ALL_LANGUAGES = [
@@ -94,6 +108,8 @@ interface UploadState {
 
 export function AgentProfile() {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [agentProfile, setAgentProfile] = useState<AgentProfile | null>(null);
+  const [isEditOpen, setIsEditOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -135,6 +151,7 @@ export function AgentProfile() {
     ])
       .then(([user, agent, template]) => {
         setUserProfile(user);
+        setAgentProfile(agent ?? null);
         setTemplateUrl(template.fileUrl);
         if (agent) {
           setCoverageItems(coverageToItems(agent.coverage));
@@ -261,6 +278,7 @@ export function AgentProfile() {
   const hasGhanaCard = !!ghanaCardDoc;
   const hasAvatar = !!userProfile?.avatarUrl;
   const hasPartnershipAgreement = !!partnershipDoc;
+  const isAgentVerified = agentProfile?.verificationStatus === "Approved";
 
   return (
     <div className="space-y-6">
@@ -351,6 +369,14 @@ export function AgentProfile() {
                   {uploads.avatar.error}
                 </p>
               )}
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-3 text-xs font-bold border-charcoal-200"
+                onClick={() => setIsEditOpen(true)}
+              >
+                <User className="h-3.5 w-3.5 mr-1" /> Edit Personal Info
+              </Button>
             </div>
 
             <div className="pt-6 space-y-4">
@@ -401,7 +427,7 @@ export function AgentProfile() {
                     variant="outline"
                     size="sm"
                     className="h-7 text-[10px] font-bold px-2 border-charcoal-200"
-                    disabled={uploads.ghanaCard.loading}
+                    disabled={uploads.ghanaCard.loading || isAgentVerified}
                     onClick={() => ghanaCardInputRef.current?.click()}
                   >
                     {uploads.ghanaCard.loading ? (
@@ -417,6 +443,11 @@ export function AgentProfile() {
               {uploads.ghanaCard.error && (
                 <p className="text-xs text-red-600 -mt-3 ml-1">
                   {uploads.ghanaCard.error}
+                </p>
+              )}
+              {isAgentVerified && (
+                <p className="text-xs text-charcoal-500 -mt-2 ml-1">
+                  Ghana Card is locked while you&rsquo;re verified — contact an admin to reset verification before changing it.
                 </p>
               )}
 
@@ -611,6 +642,16 @@ export function AgentProfile() {
           </Card>
         </div>
       </div>
+
+      {isEditOpen && userProfile && (
+        <EditPersonalInfoModal
+          isOpen={isEditOpen}
+          onClose={() => setIsEditOpen(false)}
+          user={userProfile}
+          agent={agentProfile ?? ({} as AgentProfile)}
+          onSaved={refreshProfile}
+        />
+      )}
     </div>
   );
 }
