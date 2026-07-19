@@ -1,6 +1,6 @@
 import type { GeoConstituency, GeoConstituencyDetail, GeoRegion, GeoRegionDetail } from "./coverage";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:9001/api";
+export const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:9001/api";
 
 export interface ApiError {
     error: string;
@@ -470,6 +470,7 @@ export const messageApi = {
         fetchJson<Thread>("/messages/threads", { method: "POST", body: JSON.stringify(body) }),
     send: (threadId: number, body: string) =>
         fetchJson<Message>(`/messages/threads/${threadId}`, { method: "POST", body: JSON.stringify({ body }) }),
+    streamPing: () => fetchJson<{ ok: boolean }>("/messages/stream/ping"),
     threadMessages: (threadId: number) => fetchJson<Message[]>(`/messages/threads/${threadId}`),
     threads: () => fetchJson<Thread[]>("/messages/threads"),
 };
