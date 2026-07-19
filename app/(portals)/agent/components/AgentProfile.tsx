@@ -22,31 +22,30 @@ import {
   CardTitle,
   CardDescription,
 } from "@/components/ui/Card";
-import { profileApi, uploadApi } from "@/lib/api";
+import { profileApi, uploadApi, fileProxyUrl, type AgentDocument } from "@/lib/api";
 import { CoveragePicker } from "./CoveragePicker";
 import { coverageToItems, itemsToCoverage, type CoverageItem } from "@/lib/coverage";
 
 interface UserProfile {
-  id: number;
-  fullName: string;
-  email: string;
-  phone: string | null;
   avatarUrl: string | null;
+  documents?: AgentDocument[];
+  email: string;
+  fullName: string;
   ghanaCardNumber: string | null;
-  ghanaCardUrl: string | null;
+  id: number;
   isVerified: boolean;
+  phone: string | null;
   role: string;
 }
 
 interface AgentProfile {
   agentId: number;
   coverage?: { items: CoverageItem[] };
-  languages: string | null;
-  specialties: string | null;
-  momoNumber: string | null;
-  momoNetwork: string | null;
   isOnboardingComplete: boolean;
-  partnershipAgreementUrl: string | null;
+  languages: string | null;
+  momoNetwork: string | null;
+  momoNumber: string | null;
+  specialties: string | null;
 }
 
 const ALL_LANGUAGES = [
@@ -82,6 +81,12 @@ function splitCsv(val: string | null): string[] {
     .filter(Boolean);
 }
 
+function docStatusBadgeClass(status: AgentDocument["status"]): string {
+  if (status === "Approved") return "text-green-700 bg-white border-green-200";
+  if (status === "Rejected") return "text-red-700 bg-white border-red-200";
+  return "text-amber-700 bg-white border-amber-200";
+}
+
 interface UploadState {
   loading: boolean;
   error: string;
@@ -89,7 +94,6 @@ interface UploadState {
 
 export function AgentProfile() {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
-  const [agentProfile, setAgentProfile] = useState<AgentProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -108,6 +112,8 @@ export function AgentProfile() {
     partnershipAgreement: { loading: false, error: "" },
   });
 
+  const [templateUrl, setTemplateUrl] = useState<string | null>(null);
+
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const ghanaCardInputRef = useRef<HTMLInputElement>(null);
   const agreementInputRef = useRef<HTMLInputElement>(null);
@@ -115,9 +121,7 @@ export function AgentProfile() {
   const refreshProfile = async () => {
     try {
       const user = (await profileApi.me()) as UserProfile;
-      const agent = (await profileApi.agentProfile()) as AgentProfile | null;
       setUserProfile(user);
-      setAgentProfile(agent);
     } catch {
       // silent
     }
@@ -127,17 +131,18 @@ export function AgentProfile() {
     Promise.all([
       profileApi.me() as Promise<UserProfile>,
       profileApi.agentProfile() as Promise<AgentProfile | null>,
+      profileApi.partnershipAgreementTemplate(),
     ])
-      .then(([user, agent]) => {
+      .then(([user, agent, template]) => {
         setUserProfile(user);
-        setAgentProfile(agent);
+        setTemplateUrl(template.fileUrl);
         if (agent) {
           setCoverageItems(coverageToItems(agent.coverage));
           setSelectedLanguages(splitCsv(agent.languages));
           setSelectedSpecialties(splitCsv(agent.specialties));
         }
       })
-      .catch((err: any) => setError(err.message || "Failed to load profile"))
+      .catch((err: unknown) => setError(err instanceof Error ? err.message : "Failed to load profile"))
       .finally(() => setLoading(false));
   }, []);
 
@@ -196,7 +201,10 @@ export function AgentProfile() {
       if (docType === "avatar") {
         await profileApi.uploadAvatar({ imageUrl: presign.publicUrl });
       } else if (docType === "ghanaCard") {
-        await profileApi.uploadGhanaCard({ documentUrl: presign.publicUrl });
+        await profileApi.uploadGhanaCard({
+          documentUrl: presign.publicUrl,
+          ghanaCardNumber: userProfile?.ghanaCardNumber ?? undefined,
+        });
       } else if (docType === "partnershipAgreement") {
         await profileApi.uploadPartnershipAgreement({
           documentUrl: presign.publicUrl,
@@ -247,10 +255,12 @@ export function AgentProfile() {
 
   const name = userProfile?.fullName ?? "Agent";
   const isVerified = userProfile?.isVerified ?? false;
-  const hasGhanaCard =
-    !!userProfile?.ghanaCardUrl || !!userProfile?.ghanaCardNumber;
+  const docs = userProfile?.documents ?? [];
+  const ghanaCardDoc = docs.find((d) => d.docType === "GhanaCard");
+  const partnershipDoc = docs.find((d) => d.docType === "PartnershipAgreement");
+  const hasGhanaCard = !!ghanaCardDoc;
   const hasAvatar = !!userProfile?.avatarUrl;
-  const hasPartnershipAgreement = !!agentProfile?.partnershipAgreementUrl;
+  const hasPartnershipAgreement = !!partnershipDoc;
 
   return (
     <div className="space-y-6">
@@ -370,15 +380,22 @@ export function AgentProfile() {
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
-                  {hasGhanaCard && userProfile?.ghanaCardUrl && (
-                    <a
-                      href={userProfile.ghanaCardUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-xs font-medium text-brand-600 hover:text-brand-700 flex items-center gap-1"
-                    >
-                      <Eye className="h-3 w-3" /> View
-                    </a>
+                  {hasGhanaCard && ghanaCardDoc && (
+                    <>
+                      <span
+                        className={`text-xs font-medium px-2 py-0.5 rounded-sm border shadow-sm ${docStatusBadgeClass(ghanaCardDoc.status)}`}
+                      >
+                        {ghanaCardDoc.status}
+                      </span>
+                      <a
+                        href={fileProxyUrl(ghanaCardDoc.fileUrl) ?? "#"}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs font-medium text-brand-600 hover:text-brand-700 flex items-center gap-1"
+                      >
+                        <Eye className="h-3 w-3" /> View
+                      </a>
+                    </>
                   )}
                   <Button
                     variant="outline"
@@ -448,17 +465,33 @@ export function AgentProfile() {
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
-                  {hasPartnershipAgreement &&
-                    agentProfile?.partnershipAgreementUrl && (
+                  {hasPartnershipAgreement && partnershipDoc && (
+                    <>
+                      <span
+                        className={`text-xs font-medium px-2 py-0.5 rounded-sm border shadow-sm ${docStatusBadgeClass(partnershipDoc.status)}`}
+                      >
+                        {partnershipDoc.status}
+                      </span>
                       <a
-                        href={agentProfile.partnershipAgreementUrl}
+                        href={fileProxyUrl(partnershipDoc.fileUrl) ?? "#"}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-xs font-medium text-brand-600 hover:text-brand-700 flex items-center gap-1"
                       >
                         <Eye className="h-3 w-3" /> View
                       </a>
-                    )}
+                    </>
+                  )}
+                  {templateUrl && (
+                    <a
+                      href={templateUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-xs font-medium text-accent-600 hover:text-accent-700 flex items-center gap-1"
+                    >
+                      <FileText className="h-3 w-3" /> Download Template
+                    </a>
+                  )}
                   <Button
                     variant="outline"
                     size="sm"
@@ -471,7 +504,7 @@ export function AgentProfile() {
                     ) : hasPartnershipAgreement ? (
                       "Re-upload"
                     ) : (
-                      "Upload"
+                      "Upload Signed Agreement"
                     )}
                   </Button>
                 </div>
@@ -479,6 +512,11 @@ export function AgentProfile() {
               {uploads.partnershipAgreement.error && (
                 <p className="text-xs text-red-600 -mt-3 ml-1">
                   {uploads.partnershipAgreement.error}
+                </p>
+              )}
+              {!templateUrl && (
+                <p className="text-xs text-charcoal-400 -mt-2 ml-1">
+                  Your admin hasn't published a template yet — you can still upload a signed agreement.
                 </p>
               )}
             </div>

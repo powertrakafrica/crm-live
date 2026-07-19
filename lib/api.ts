@@ -2,6 +2,16 @@ import type { GeoConstituency, GeoConstituencyDetail, GeoRegion, GeoRegionDetail
 
 export const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:9001/api";
 
+export interface AgentDocument {
+    createdAt: string;
+    docType: string;
+    fileUrl: string;
+    id: number;
+    reviewedAt: string | null;
+    reviewedBy: number | null;
+    status: "Approved" | "Pending" | "Rejected";
+}
+
 export interface ApiError {
     error: string;
     status: number;
@@ -384,19 +394,20 @@ export const payoutApi = {
 // ─── Profile ─────────────────────────────────────────
 
 export const profileApi = {
-    me: () => fetchJson<unknown>("/profile/me"),
-    update: (body: Record<string, unknown>) => fetchJson<unknown>("/profile/me", { method: "PUT", body: JSON.stringify(body) }),
-    uploadAvatar: (body: Record<string, unknown>) => fetchJson<unknown>("/profile/avatar", { method: "POST", body: JSON.stringify(body) }),
-    uploadGhanaCard: (body: Record<string, unknown>) => fetchJson<unknown>("/profile/ghana-card", { method: "POST", body: JSON.stringify(body) }),
-    uploadPartnershipAgreement: (body: Record<string, unknown>) => fetchJson<unknown>("/profile/partnership-agreement", { method: "POST", body: JSON.stringify(body) }),
     agentApplication: (body: Record<string, unknown>) =>
         fetchJson<unknown>("/profile/agent-application", { method: "POST", body: JSON.stringify(body) }),
-    getAgentApplication: () => fetchJson<unknown>("/profile/agent-application"),
     agentProfile: (agentId?: number) => {
         const path = agentId ? `/profile/agent/${agentId}` : "/profile/agent";
         return fetchJson<unknown>(path);
     },
+    getAgentApplication: () => fetchJson<unknown>("/profile/agent-application"),
+    me: () => fetchJson<unknown>("/profile/me"),
+    partnershipAgreementTemplate: () => fetchJson<{ fileUrl: string | null }>("/profile/partnership-agreement-template"),
+    update: (body: Record<string, unknown>) => fetchJson<unknown>("/profile/me", { method: "PUT", body: JSON.stringify(body) }),
     updateAgentProfile: (body: Record<string, unknown>) => fetchJson<unknown>("/profile/agent", { method: "PUT", body: JSON.stringify(body) }),
+    uploadAvatar: (body: Record<string, unknown>) => fetchJson<unknown>("/profile/avatar", { method: "POST", body: JSON.stringify(body) }),
+    uploadGhanaCard: (body: Record<string, unknown>) => fetchJson<unknown>("/profile/ghana-card", { method: "POST", body: JSON.stringify(body) }),
+    uploadPartnershipAgreement: (body: Record<string, unknown>) => fetchJson<unknown>("/profile/partnership-agreement", { method: "POST", body: JSON.stringify(body) }),
 };
 
 // ─── Geo ─────────────────────────────────────────────
