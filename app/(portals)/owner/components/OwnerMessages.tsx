@@ -36,8 +36,10 @@ export function OwnerMessages() {
     }, []);
 
     // Live in-app message push (M1): append bot/human messages for the open
-    // thread as they arrive over the SSE stream (deduped by id — handleSend
-    // already appends the sent message optimistically at line 51).
+    // thread as they arrive over the SSE stream. Both this callback and
+    // handleSend dedupe by id — the backend emits the SSE event before the
+    // POST response returns, so the echo can land before handleSend's await
+    // resolves; idempotent appends on both sides avoid a duplicate bubble.
     useRealtimeThread(selectedThreadId, (m) => {
         setThreadMessages((prev) => (prev.some((x) => x.id === m.id) ? prev : [...prev, m]));
     });
@@ -56,7 +58,7 @@ export function OwnerMessages() {
         setSending(true);
         try {
             const sent = await messageApi.send(selectedThreadId, composerBody.trim());
-            setThreadMessages((m) => [...m, sent]);
+            setThreadMessages((m) => (m.some((x) => x.id === sent.id) ? m : [...m, sent]));
             setComposerBody("");
             messageApi.threads().then((data) => setThreads(data)).catch(() => {});
         } catch (err: unknown) {
