@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { ShieldCheck, FileText, UploadCloud, Map, UserCheck, Search, ChevronRight, Activity, Building, Clock, MapPin, CheckCircle2, Loader2, X, Image as ImageIcon } from "lucide-react";
+import { Activity, Building, Camera, CheckCircle2, ChevronRight, Clock, FileText, Image as ImageIcon, Loader2, Map, MapPin, Ruler, Search, ShieldCheck, UploadCloud, UserCheck, X, Zap } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
@@ -38,9 +38,12 @@ function mapStatusToStage(status: string) {
 }
 
 const REQUIRED_DOCS: Record<string, { label: string; checkType: string; icon: typeof FileText }> = {
-    indenture: { label: "Indenture / Title Deed", checkType: "OwnershipDocument", icon: FileText },
-    sitePlan: { label: "Site Plan", checkType: "GPSLocation", icon: MapPin },
-    ghanaCard: { label: "Ghana Card", checkType: "LandCommissionSearch", icon: ShieldCheck },
+    ownership: { label: "Ownership Document (Title Deed / Indenture / Site Plan)", checkType: "OwnershipDocument", icon: FileText },
+    gps: { label: "GPS Location", checkType: "GPSLocation", icon: MapPin },
+    landSearch: { label: "Lands Commission Search", checkType: "LandCommissionSearch", icon: Search },
+    photos: { label: "Photos Match Listing", checkType: "PhotosMatch", icon: Camera },
+    boundary: { label: "Boundary / Wall", checkType: "BoundaryWall", icon: Ruler },
+    utilities: { label: "Utilities Connected", checkType: "UtilitiesConnected", icon: Zap },
 };
 
 export function OwnerVerification() {
