@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { PhotonSearch } from "@/components/PhotonSearch";
+import { WizardDocumentStep, type PendingDoc } from "@/components/WizardDocumentStep";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { ownerApi, propertiesApi, uploadApi } from "@/lib/api";
@@ -119,6 +120,9 @@ export function OwnerListings() {
     const [deleteError, setDeleteError] = useState("");
     const imageInputRef = useRef<HTMLInputElement>(null);
 
+    // Verification-doc state (G3 step 5)
+    const [pendingDocs, setPendingDocs] = useState<PendingDoc[]>([]);
+
     const regions = useGeoRegions();
     const constituencies = useConstituencies(wizardForm.regionId || null);
 
@@ -176,6 +180,7 @@ export function OwnerListings() {
         setWizardStep(1);
         setWizardForm(EMPTY_FORM);
         setImageFiles([]);
+        setPendingDocs([]);
         setPublishError("");
         setPublishing(false);
         setEditingListing(null);
@@ -206,6 +211,7 @@ export function OwnerListings() {
             features: listing.amenities ?? [],
         });
         setImageFiles([]);
+        setPendingDocs([]);
         setPublishError("");
         setEditingListing(listing);
         setWizardOpen(true);
@@ -216,6 +222,7 @@ export function OwnerListings() {
         // cleanup revokes their object URLs (no leak on X-cancel). Mirrors
         // openWizard's reset.
         setImageFiles([]);
+        setPendingDocs([]);
         setPublishError("");
         setEditingListing(null);
         setWizardOpen(false);
@@ -290,6 +297,36 @@ export function OwnerListings() {
                 return; // keep wizard open so the message is visible; user closes via X
             }
             setImageFiles([]);
+
+            // Verification documents (G3): upload the queued docs now that the
+            // property exists. Best-effort like images — a failure doesn't block
+            // the listing, but surfaces a partial-fail message.
+            let docsUploaded = 0;
+            for (const d of pendingDocs) {
+                try {
+                    const presign = await uploadApi.presign(d.file.name, "property-docs", d.file.type || undefined);
+                    const put = await fetch(presign.url, { method: "PUT", body: d.file, headers: { "Content-Type": d.file.type } });
+                    if (!put.ok) throw new Error("Upload failed");
+                    await propertiesApi.addDocument(created.id, {
+                        documentType: d.documentType,
+                        url: presign.publicUrl,
+                        label: d.label,
+                    });
+                    docsUploaded++;
+                } catch {
+                    // Property + images already created; keep going.
+                }
+            }
+            if (pendingDocs.length > 0 && docsUploaded < pendingDocs.length) {
+                partialFail = true;
+                setPublishError(
+                    `Listing created, but only ${docsUploaded} of ${pendingDocs.length} verification documents uploaded.`,
+                );
+                setPendingDocs([]);
+                loadListings();
+                return;
+            }
+            setPendingDocs([]);
             setEditingListing(null);
             setWizardOpen(false);
             loadListings();
@@ -389,7 +426,7 @@ export function OwnerListings() {
         }
     };
 
-    const WIZARD_STEPS = 4;
+    const WIZARD_STEPS = 5;
 
     const canContinue = () => {
         switch (wizardStep) {
@@ -405,6 +442,8 @@ export function OwnerListings() {
             case 3:
                 return wizardForm.price > 0;
             case 4:
+                return true;
+            case 5:
                 return true;
             default:
                 return true;
@@ -879,6 +918,11 @@ export function OwnerListings() {
                                         <p className="text-sm font-medium text-red-700">{publishError}</p>
                                     )}
                                 </div>
+                            )}
+
+                            {/* STEP 5: Verification Documents */}
+                            {wizardStep === 5 && (
+                                <WizardDocumentStep docs={pendingDocs} setDocs={setPendingDocs} disabled={publishing} />
                             )}
 
                         </div>
