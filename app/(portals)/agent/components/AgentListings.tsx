@@ -26,6 +26,7 @@ import { Card, CardContent } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { agentApi, propertiesApi, uploadApi } from "@/lib/api";
 import { useGeoRegions, useConstituencies } from "@/lib/hooks/geo";
+import { WizardDocumentStep, type PendingDoc } from "@/components/WizardDocumentStep";
 
 interface AgentListing {
   id: number;
@@ -86,6 +87,7 @@ export function AgentListings() {
 
   const [imageFiles, setImageFiles] = useState<File[]>([]);
   const [imagePreviews, setImagePreviews] = useState<string[]>([]);
+  const [pendingDocs, setPendingDocs] = useState<PendingDoc[]>([]);
   const [publishing, setPublishing] = useState(false);
   const [publishError, setPublishError] = useState("");
   const [deleteError, setDeleteError] = useState("");
@@ -198,6 +200,7 @@ export function AgentListings() {
       period: "month",
     });
     setImageFiles([]);
+    setPendingDocs([]);
     setPublishError("");
     setPublishing(false);
     setEditingListing(null);
@@ -210,6 +213,7 @@ export function AgentListings() {
 
   const openEditWizard = (listing: AgentListing) => {
     setWizardStep(1);
+    setPendingDocs([]);
     setWizardForm({
       title: listing.title,
       description: listing.description ?? "",
@@ -396,6 +400,36 @@ export function AgentListings() {
         return; // keep wizard open so the message is visible; user closes via X
       }
       setImageFiles([]);
+
+      // Verification documents (G3): upload the queued docs now that the
+      // property exists. Best-effort like images — a failure doesn't block
+      // the listing, but surfaces a partial-fail message.
+      let docsUploaded = 0;
+      for (const d of pendingDocs) {
+        try {
+          const presign = await uploadApi.presign(d.file.name, "property-docs", d.file.type || undefined);
+          const put = await fetch(presign.url, { method: "PUT", body: d.file, headers: { "Content-Type": d.file.type } });
+          if (!put.ok) throw new Error("Upload failed");
+          await propertiesApi.addDocument(created.id, {
+            documentType: d.documentType,
+            url: presign.publicUrl,
+            label: d.label,
+          });
+          docsUploaded++;
+        } catch {
+          // Property + images already created; keep going.
+        }
+      }
+      if (pendingDocs.length > 0 && docsUploaded < pendingDocs.length) {
+        partialFail = true;
+        setPublishError(
+          `Listing created, but only ${docsUploaded} of ${pendingDocs.length} verification documents uploaded.`,
+        );
+        setPendingDocs([]);
+        loadListings();
+        return;
+      }
+      setPendingDocs([]);
       setEditingListing(null);
       setIsWizardOpen(false);
       loadListings();
@@ -421,7 +455,7 @@ export function AgentListings() {
     }
   };
 
-  const WIZARD_STEPS = 4;
+  const WIZARD_STEPS = 5;
 
   const canContinue = () => {
     switch (wizardStep) {
@@ -437,6 +471,8 @@ export function AgentListings() {
       case 3:
         return wizardForm.price > 0;
       case 4:
+        return true;
+      case 5:
         return true;
       default:
         return true;
@@ -875,6 +911,11 @@ export function AgentListings() {
           )}
         </div>
       )}
+
+      {/* Step 5: Verification Documents */}
+      {wizardStep === 5 && (
+        <WizardDocumentStep docs={pendingDocs} setDocs={setPendingDocs} disabled={publishing} />
+      )}
     </div>
   );
 
@@ -1100,6 +1141,7 @@ export function AgentListings() {
                   // effect's cleanup revokes their object URLs (no leak on
                   // X-cancel). Mirrors openWizard's reset.
                   setImageFiles([]);
+                  setPendingDocs([]);
                   setPublishError("");
                   setEditingListing(null);
                   setIsWizardOpen(false);
