@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { MessageSquare, Sparkles, Calendar, Star, Flag, CheckCircle2, ChevronDown, AlertTriangle, X, User, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
+import { Pager } from "@/components/ui/Pager";
 import { messageApi, propertiesApi, bookingApi, ratingApi, reportApi, type BookingSlot, type Message, type Thread } from "@/lib/api";
 import { useRealtimeThread } from "@/lib/hooks/useRealtimeThread";
 
@@ -38,6 +39,8 @@ function formatThreadTime(iso: string | null) {
     return d.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
+const THREAD_PAGE_SIZE = 20;
+
 export function ClientCommunications() {
     const [activeSection, setActiveSection] = useState<"calendar" | "messages" | "feedback">("messages");
 
@@ -54,6 +57,22 @@ export function ClientCommunications() {
     const [composerBody, setComposerBody] = useState("");
     const [sending, setSending] = useState(false);
     const [assistantLoading, setAssistantLoading] = useState(false);
+    const [threadsPage, setThreadsPage] = useState(1);
+    const [threadsTotal, setThreadsTotal] = useState(0);
+
+    const loadThreads = useCallback(async (page: number) => {
+        setThreadsLoading(true);
+        try {
+            const res = await messageApi.threads(page, THREAD_PAGE_SIZE);
+            setThreads(res.threads);
+            setThreadsTotal(res.total);
+            setThreadsPage(page);
+        } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : "Failed to load messages");
+        } finally {
+            setThreadsLoading(false);
+        }
+    }, []);
 
     // Calendar state
     const [properties, setProperties] = useState<Property[]>([]);
@@ -86,13 +105,9 @@ export function ClientCommunications() {
 
     useEffect(() => {
         if (activeSection === "messages") {
-            setThreadsLoading(true);
-            messageApi.threads()
-                .then((data) => setThreads(data))
-                .catch((err: unknown) => setError(err instanceof Error ? err.message : "Failed to load messages"))
-                .finally(() => setThreadsLoading(false));
+            void loadThreads(1);
         }
-    }, [activeSection]);
+    }, [activeSection, loadThreads]);
 
     useEffect(() => {
         if (activeSection === "calendar") {
@@ -182,8 +197,8 @@ export function ClientCommunications() {
             setThreadMessages((m) => (m.some((x) => x.id === sent.id) ? m : [...m, sent]));
             setComposerBody("");
             // Refresh the thread list so lastMessage/unread update.
-            messageApi.threads()
-                .then((data) => setThreads(data))
+            messageApi.threads(threadsPage, THREAD_PAGE_SIZE)
+                .then((res) => { setThreads(res.threads); setThreadsTotal(res.total); })
                 .catch(() => {});
         } catch (err: unknown) {
             setError(err instanceof Error ? err.message : "Send failed");
@@ -198,8 +213,9 @@ export function ClientCommunications() {
         try {
             const { threadId } = await messageApi.assistant();
             // Refresh the thread list so the new assistant thread appears, then open it.
-            const refreshed = await messageApi.threads();
-            setThreads(refreshed);
+            const refreshed = await messageApi.threads(threadsPage, THREAD_PAGE_SIZE);
+            setThreads(refreshed.threads);
+            setThreadsTotal(refreshed.total);
             openThread(threadId);
         } catch (err: unknown) {
             setError(err instanceof Error ? err.message : "Failed to start assistant conversation");
@@ -364,6 +380,13 @@ export function ClientCommunications() {
                             </Card>
                         ))
                     )}
+                    <Pager
+                        page={threadsPage}
+                        totalPages={Math.max(1, Math.ceil(threadsTotal / THREAD_PAGE_SIZE))}
+                        total={threadsTotal}
+                        onPageChange={(p) => { void loadThreads(p); }}
+                        itemNoun="conversations"
+                    />
                 </div>
                     {selectedThreadId && (
                         <Card className="border-charcoal-200 shadow-sm bg-white">
