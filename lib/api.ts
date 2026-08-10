@@ -483,7 +483,13 @@ export const messageApi = {
         fetchJson<Message>(`/messages/threads/${threadId}`, { method: "POST", body: JSON.stringify({ body }) }),
     streamPing: () => fetchJson<{ ok: boolean }>("/messages/stream/ping"),
     threadMessages: (threadId: number) => fetchJson<Message[]>(`/messages/threads/${threadId}`),
-    threads: () => fetchJson<Thread[]>("/messages/threads"),
+    threads: (page?: number, limit?: number) => {
+        const params = new URLSearchParams();
+        if (page !== undefined) params.set("page", String(page));
+        if (limit !== undefined) params.set("limit", String(limit));
+        const qs = params.toString();
+        return fetchJson<{ threads: Thread[]; total: number }>(`/messages/threads${qs ? "?" + qs : ""}`);
+    },
 };
 
 // ─── Bookings ────────────────────────────────────────

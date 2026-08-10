@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Loader2, MessageSquare, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent } from "@/components/ui/Card";
+import { Pager } from "@/components/ui/Pager";
 import { messageApi, type Message, type Thread } from "@/lib/api";
 import { useRealtimeThread } from "@/lib/hooks/useRealtimeThread";
 
@@ -16,6 +17,8 @@ function formatThreadTime(iso: string | null) {
     return d.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
+const THREAD_PAGE_SIZE = 20;
+
 export function OwnerMessages() {
     const [threads, setThreads] = useState<Thread[]>([]);
     const [threadsLoading, setThreadsLoading] = useState(false);
@@ -26,14 +29,26 @@ export function OwnerMessages() {
     const [composerBody, setComposerBody] = useState("");
     const [sending, setSending] = useState(false);
     const [assistantLoading, setAssistantLoading] = useState(false);
+    const [threadsPage, setThreadsPage] = useState(1);
+    const [threadsTotal, setThreadsTotal] = useState(0);
+
+    const loadThreads = useCallback(async (page: number) => {
+        setThreadsLoading(true);
+        try {
+            const res = await messageApi.threads(page, THREAD_PAGE_SIZE);
+            setThreads(res.threads);
+            setThreadsTotal(res.total);
+            setThreadsPage(page);
+        } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : "Failed to load messages");
+        } finally {
+            setThreadsLoading(false);
+        }
+    }, []);
 
     useEffect(() => {
-        setThreadsLoading(true);
-        messageApi.threads()
-            .then((data) => setThreads(data))
-            .catch((err: unknown) => setError(err instanceof Error ? err.message : "Failed to load messages"))
-            .finally(() => setThreadsLoading(false));
-    }, []);
+        void loadThreads(1);
+    }, [loadThreads]);
 
     // Live in-app message push (M1): append bot/human messages for the open
     // thread as they arrive over the SSE stream. Both this callback and
@@ -60,7 +75,9 @@ export function OwnerMessages() {
             const sent = await messageApi.send(selectedThreadId, composerBody.trim());
             setThreadMessages((m) => (m.some((x) => x.id === sent.id) ? m : [...m, sent]));
             setComposerBody("");
-            messageApi.threads().then((data) => setThreads(data)).catch(() => {});
+            messageApi.threads(threadsPage, THREAD_PAGE_SIZE)
+                .then((res) => { setThreads(res.threads); setThreadsTotal(res.total); })
+                .catch(() => {});
         } catch (err: unknown) {
             setError(err instanceof Error ? err.message : "Send failed");
         } finally {
@@ -74,8 +91,9 @@ export function OwnerMessages() {
         try {
             const { threadId } = await messageApi.assistant();
             // Refresh the thread list so the new assistant thread appears, then open it.
-            const refreshed = await messageApi.threads();
-            setThreads(refreshed);
+            const refreshed = await messageApi.threads(threadsPage, THREAD_PAGE_SIZE);
+            setThreads(refreshed.threads);
+            setThreadsTotal(refreshed.total);
             openThread(threadId);
         } catch (err: unknown) {
             setError(err instanceof Error ? err.message : "Failed to start assistant conversation");
@@ -159,46 +177,55 @@ export function OwnerMessages() {
                         </div>
                     </CardContent>
                 </Card>
-            ) : threadsLoading ? (
-                <div className="flex items-center justify-center h-40">
-                    <Loader2 className="h-6 w-6 animate-spin text-brand-600" />
-                    <span className="ml-2 text-slate-600 font-medium">Loading conversations…</span>
-                </div>
-            ) : threads.length === 0 ? (
-                <div className="text-center py-12 text-slate-500 font-medium">No conversations yet.</div>
             ) : (
                 <div className="space-y-4">
-                    {threads.map((thread) => (
-                        <Card key={thread.id} className="border-slate-200 shadow-sm hover:shadow-md transition-shadow cursor-pointer bg-white">
-                            <CardContent className="p-5">
-                                <div className="flex items-start gap-4">
-                                    <div className="h-12 w-12 bg-brand-100 rounded-full flex items-center justify-center shrink-0 border-2 border-brand-200">
-                                        <MessageSquare className="h-5 w-5 text-brand-600" />
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                        <div className="flex items-center justify-between gap-2">
-                                            <h4 className="font-bold text-slate-900 text-sm">{thread.contactName}</h4>
-                                            <span className="text-xs text-slate-400">{formatThreadTime(thread.lastMessageAt)}</span>
+                    {threadsLoading ? (
+                        <div className="flex items-center justify-center h-40">
+                            <Loader2 className="h-6 w-6 animate-spin text-brand-600" />
+                            <span className="ml-2 text-slate-600 font-medium">Loading conversations…</span>
+                        </div>
+                    ) : threads.length === 0 ? (
+                        <div className="text-center py-12 text-slate-500 font-medium">No conversations yet.</div>
+                    ) : (
+                        threads.map((thread) => (
+                            <Card key={thread.id} className="border-slate-200 shadow-sm hover:shadow-md transition-shadow cursor-pointer bg-white">
+                                <CardContent className="p-5">
+                                    <div className="flex items-start gap-4">
+                                        <div className="h-12 w-12 bg-brand-100 rounded-full flex items-center justify-center shrink-0 border-2 border-brand-200">
+                                            <MessageSquare className="h-5 w-5 text-brand-600" />
                                         </div>
-                                        {thread.propertyTitle && (
-                                            <p className="text-xs font-medium text-brand-600 mb-1 truncate">{thread.propertyTitle}</p>
-                                        )}
-                                        <p className="text-sm text-slate-600 truncate">{thread.lastMessage?.body ?? "No messages yet"}</p>
+                                        <div className="flex-1 min-w-0">
+                                            <div className="flex items-center justify-between gap-2">
+                                                <h4 className="font-bold text-slate-900 text-sm">{thread.contactName}</h4>
+                                                <span className="text-xs text-slate-400">{formatThreadTime(thread.lastMessageAt)}</span>
+                                            </div>
+                                            {thread.propertyTitle && (
+                                                <p className="text-xs font-medium text-brand-600 mb-1 truncate">{thread.propertyTitle}</p>
+                                            )}
+                                            <p className="text-sm text-slate-600 truncate">{thread.lastMessage?.body ?? "No messages yet"}</p>
+                                        </div>
                                     </div>
-                                </div>
-                                <div className="mt-4 pt-3 border-t border-slate-100">
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        className="h-9 text-xs text-slate-600 bg-white border-slate-200 hover:bg-slate-50"
-                                        onClick={() => openThread(thread.id)}
-                                    >
-                                        <MessageSquare className="h-3.5 w-3.5 mr-1.5" /> Open thread
-                                    </Button>
-                                </div>
-                            </CardContent>
-                        </Card>
-                    ))}
+                                    <div className="mt-4 pt-3 border-t border-slate-100">
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="h-9 text-xs text-slate-600 bg-white border-slate-200 hover:bg-slate-50"
+                                            onClick={() => openThread(thread.id)}
+                                        >
+                                            <MessageSquare className="h-3.5 w-3.5 mr-1.5" /> Open thread
+                                        </Button>
+                                    </div>
+                                </CardContent>
+                            </Card>
+                        ))
+                    )}
+                    <Pager
+                        page={threadsPage}
+                        totalPages={Math.max(1, Math.ceil(threadsTotal / THREAD_PAGE_SIZE))}
+                        total={threadsTotal}
+                        onPageChange={(p) => { void loadThreads(p); }}
+                        itemNoun="conversations"
+                    />
                 </div>
             )}
         </div>
