@@ -205,6 +205,8 @@ export const propertiesApi = {
     delete: (id: number) => fetchJson<{ message: string }>(`/properties/${id}`, { method: "DELETE" }),
     addImage: (id: number, body: { url: string; altText?: string; sortOrder?: number; isPrimary?: boolean }) =>
         fetchJson<unknown>(`/properties/${id}/images`, { method: "POST", body: JSON.stringify(body) }),
+    deleteImage: (id: number, imageId: number) =>
+        fetchJson<{ message: string }>(`/properties/${id}/images/${imageId}`, { method: "DELETE" }),
     addDocument: (id: number, body: { documentType: string; url: string; label?: string }) =>
         fetchJson<unknown>(`/properties/${id}/documents`, { method: "POST", body: JSON.stringify(body) }),
     deleteDocument: (id: number, docId: number) =>
