@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { UploadCloud, Loader2, X, FileText, Trash2, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import {
     DOCUMENT_TYPES,
     type PropertyDocument,
@@ -38,6 +39,8 @@ export function OwnerDocumentsModal({ propertyId, propertyTitle, onClose }: {
     const [file, setFile] = useState<File | null>(null);
     const [uploading, setUploading] = useState(false);
     const [msg, setMsg] = useState("");
+    const [deleteDocTarget, setDeleteDocTarget] = useState<number | null>(null);
+    const [deleting, setDeleting] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const load = () => {
@@ -78,13 +81,17 @@ export function OwnerDocumentsModal({ propertyId, propertyTitle, onClose }: {
         }
     };
 
-    const handleDelete = async (docId: number) => {
-        if (!confirm("Remove this document?")) return;
+    const confirmDeleteDoc = async () => {
+        if (deleteDocTarget === null) return;
+        setDeleting(true);
         try {
-            await propertiesApi.deleteDocument(propertyId, docId);
+            await propertiesApi.deleteDocument(propertyId, deleteDocTarget);
+            setDeleteDocTarget(null);
             load();
         } catch (e) {
             setMsg(e instanceof Error ? e.message : "Delete failed");
+        } finally {
+            setDeleting(false);
         }
     };
 
@@ -172,7 +179,7 @@ export function OwnerDocumentsModal({ propertyId, propertyTitle, onClose }: {
                                                     View <ExternalLink className="h-3 w-3" />
                                                 </a>
                                             )}
-                                            <button onClick={() => handleDelete(d.id)} className="text-charcoal-400 hover:text-red-600 p-1" title="Remove">
+                                            <button onClick={() => setDeleteDocTarget(d.id)} className="text-charcoal-400 hover:text-red-600 p-1" title="Remove">
                                                 <Trash2 className="h-4 w-4" />
                                             </button>
                                         </div>
@@ -184,6 +191,16 @@ export function OwnerDocumentsModal({ propertyId, propertyTitle, onClose }: {
                     <p className="text-[11px] text-charcoal-400 font-medium">Documents are private — only you, your assigned agent, and TEPS admins can view them. The public listing shows only the verified count.</p>
                 </div>
             </div>
+
+            <ConfirmDialog
+                isOpen={deleteDocTarget !== null}
+                onClose={() => setDeleteDocTarget(null)}
+                onConfirm={confirmDeleteDoc}
+                title="Remove document"
+                message="Remove this document?"
+                confirmLabel="Remove"
+                busy={deleting}
+            />
         </div>
     );
 }

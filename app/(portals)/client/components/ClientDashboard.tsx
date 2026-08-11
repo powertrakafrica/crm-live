@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Briefcase, Heart, CheckCircle2, Clock, Edit3, Save, MessageSquare, UserCircle2, ShieldCheck, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import PropertyCard from "@/components/PropertyCard";
 import { clientApi } from "@/lib/api";
 
@@ -28,6 +29,8 @@ export function ClientDashboard() {
     const [savingNote, setSavingNote] = useState<string | null>(null);
     const [savedProperties, setSavedProperties] = useState<any[]>([]);
     const [savedLoading, setSavedLoading] = useState(true);
+    const [removeTarget, setRemoveTarget] = useState<number | null>(null);
+    const [deleting, setDeleting] = useState(false);
 
     useEffect(() => {
         clientApi.serviceRequests()
@@ -69,12 +72,17 @@ export function ClientDashboard() {
         }
     };
 
-    const handleUnsave = async (propertyId: number) => {
+    const confirmRemove = async () => {
+        if (removeTarget === null) return;
+        setDeleting(true);
         try {
-            await clientApi.savedProperties.remove(propertyId);
-            setSavedProperties((prev) => prev.filter((p) => p.id !== propertyId));
+            await clientApi.savedProperties.remove(removeTarget);
+            setSavedProperties((prev) => prev.filter((p) => p.id !== removeTarget));
+            setRemoveTarget(null);
         } catch {
             // best-effort: leave the card so the user can retry
+        } finally {
+            setDeleting(false);
         }
     };
 
@@ -192,7 +200,7 @@ export function ClientDashboard() {
                         {!savedLoading && savedProperties.map((property: any) => (
                             <div key={property.id} className="bg-white border border-charcoal-200 rounded-sm shadow-sm p-4 relative overflow-hidden group">
                                 <button
-                                    onClick={() => handleUnsave(property.id)}
+                                    onClick={() => setRemoveTarget(property.id)}
                                     title="Remove from Vault"
                                     className="absolute top-2 right-2 z-10 h-8 w-8 flex items-center justify-center rounded-sm bg-white/90 text-charcoal-500 hover:text-red-600 hover:bg-red-50 shadow-sm border border-charcoal-200 transition-colors"
                                 >
@@ -255,6 +263,16 @@ export function ClientDashboard() {
                     </div>
                 </div>
             </div>
+
+            <ConfirmDialog
+                isOpen={removeTarget !== null}
+                onClose={() => setRemoveTarget(null)}
+                onConfirm={confirmRemove}
+                title="Remove from vault"
+                message="Remove this property from your vault?"
+                confirmLabel="Remove"
+                busy={deleting}
+            />
         </div>
     );
 }

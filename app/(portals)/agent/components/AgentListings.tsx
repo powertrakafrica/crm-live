@@ -24,6 +24,7 @@ import { Button } from "@/components/ui/Button";
 import { PhotonSearch } from "@/components/PhotonSearch";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { agentApi, propertiesApi, uploadApi } from "@/lib/api";
 import { useGeoRegions, useConstituencies } from "@/lib/hooks/geo";
 import { WizardDocumentStep, type PendingDoc } from "@/components/WizardDocumentStep";
@@ -91,6 +92,10 @@ export function AgentListings() {
   const [publishing, setPublishing] = useState(false);
   const [publishError, setPublishError] = useState("");
   const [deleteError, setDeleteError] = useState("");
+  const [unpublishTarget, setUnpublishTarget] = useState<AgentListing | null>(
+    null,
+  );
+  const [deleting, setDeleting] = useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
 
   const regions = useGeoRegions();
@@ -319,14 +324,18 @@ export function AgentListings() {
     }
   };
 
-  const handleUnpublish = async (listing: AgentListing) => {
-    if (!window.confirm(`Unpublish and delete "${listing.title}"? This cannot be undone.`)) return;
+  const confirmUnpublish = async () => {
+    if (!unpublishTarget) return;
     setDeleteError("");
+    setDeleting(true);
     try {
-      await propertiesApi.delete(listing.id);
-      setListings((prev) => prev.filter((l) => l.id !== listing.id));
+      await propertiesApi.delete(unpublishTarget.id);
+      setListings((prev) => prev.filter((l) => l.id !== unpublishTarget.id));
+      setUnpublishTarget(null);
     } catch (err: unknown) {
       setDeleteError(err instanceof Error ? err.message : "Failed to unpublish listing.");
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -1089,7 +1098,7 @@ export function AgentListings() {
                             <Edit className="h-4 w-4" />
                           </Button>
                           <Button
-                            onClick={() => handleUnpublish(listing)}
+                            onClick={() => setUnpublishTarget(listing)}
                             variant="ghost"
                             size="icon"
                             title="Unpublish / delete listing"
@@ -1198,6 +1207,16 @@ export function AgentListings() {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        isOpen={unpublishTarget !== null}
+        onClose={() => setUnpublishTarget(null)}
+        onConfirm={confirmUnpublish}
+        title="Unpublish listing"
+        message={<>Unpublish and delete <strong>{unpublishTarget?.title}</strong>? This cannot be undone.</>}
+        confirmLabel="Unpublish & delete"
+        busy={deleting}
+      />
     </div>
   );
 }

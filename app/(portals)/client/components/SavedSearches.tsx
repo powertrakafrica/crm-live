@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Bell, BellOff, Check, Pencil, RefreshCw, Search, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { clientApi, propertiesApi } from "@/lib/api";
 
 interface SavedSearch {
@@ -24,6 +25,9 @@ export function SavedSearches({ currentQuery, onApplyResults }: SavedSearchesPro
     const [editName, setEditName] = useState("");
     const [name, setName] = useState("");
     const [searches, setSearches] = useState<SavedSearch[]>([]);
+    const [updateTarget, setUpdateTarget] = useState<SavedSearch | null>(null);
+    const [deleteTarget, setDeleteTarget] = useState<SavedSearch | null>(null);
+    const [deleting, setDeleting] = useState(false);
 
     const load = useCallback(() => {
         clientApi.savedSearches
@@ -56,12 +60,17 @@ export function SavedSearches({ currentQuery, onApplyResults }: SavedSearchesPro
         }
     };
 
-    const remove = async (id: number) => {
+    const confirmDelete = async () => {
+        if (!deleteTarget) return;
+        setDeleting(true);
         try {
-            await clientApi.savedSearches.delete(id);
+            await clientApi.savedSearches.delete(deleteTarget.id);
+            setDeleteTarget(null);
             load();
         } catch (err: unknown) {
             setError(err instanceof Error ? err.message : "Failed to delete search");
+        } finally {
+            setDeleting(false);
         }
     };
 
@@ -97,17 +106,24 @@ export function SavedSearches({ currentQuery, onApplyResults }: SavedSearchesPro
             setError(err instanceof Error ? err.message : "Failed to rename search");
         }
     };
-    const refresh = async (s: SavedSearch) => {
+    const refresh = (s: SavedSearch) => {
         if (Object.keys(currentQuery).length === 0) {
             setError("Apply filters in the search bar first, then update the saved search.");
             return;
         }
-        if (!window.confirm(`Update "${s.name}" to use the current filters?`)) return;
+        setUpdateTarget(s);
+    };
+    const confirmUpdate = async () => {
+        if (!updateTarget) return;
+        setDeleting(true);
         try {
-            await clientApi.savedSearches.update(s.id, { queryJson: currentQuery });
+            await clientApi.savedSearches.update(updateTarget.id, { queryJson: currentQuery });
+            setUpdateTarget(null);
             load();
         } catch (err: unknown) {
             setError(err instanceof Error ? err.message : "Failed to update search");
+        } finally {
+            setDeleting(false);
         }
     };
 
@@ -183,7 +199,7 @@ export function SavedSearches({ currentQuery, onApplyResults }: SavedSearchesPro
                                     <Button variant="ghost" size="icon" className="h-8 w-8 text-charcoal-500 hover:text-brand-600 hover:bg-brand-50" onClick={() => toggleAlert(s)} title={s.alertEnabled ? "Disable alert" : "Enable alert"}>
                                         {s.alertEnabled ? <Bell className="h-4 w-4 text-brand-600" /> : <BellOff className="h-4 w-4" />}
                                     </Button>
-                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-charcoal-500 hover:text-red-600 hover:bg-red-50" onClick={() => remove(s.id)} title="Delete">
+                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-charcoal-500 hover:text-red-600 hover:bg-red-50" onClick={() => setDeleteTarget(s)} title="Delete">
                                         <Trash2 className="h-4 w-4" />
                                     </Button>
                                 </div>
@@ -192,6 +208,26 @@ export function SavedSearches({ currentQuery, onApplyResults }: SavedSearchesPro
                     ))}
                 </ul>
             )}
+
+            <ConfirmDialog
+                isOpen={updateTarget !== null}
+                onClose={() => setUpdateTarget(null)}
+                onConfirm={confirmUpdate}
+                title="Update saved search"
+                message={<>Update <strong>{updateTarget?.name}</strong> to use the current filters?</>}
+                confirmLabel="Update"
+                destructive={false}
+                busy={deleting}
+            />
+            <ConfirmDialog
+                isOpen={deleteTarget !== null}
+                onClose={() => setDeleteTarget(null)}
+                onConfirm={confirmDelete}
+                title="Delete saved search"
+                message={<>Delete <strong>{deleteTarget?.name}</strong>?</>}
+                confirmLabel="Delete"
+                busy={deleting}
+            />
         </div>
     );
 }
