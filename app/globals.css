@@ -86,6 +86,16 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
+/* Hide the scrollbar on horizontally-scrollable tab rows while keeping
+   them scrollable (e.g. the agent portal's top nav on narrow screens). */
+@utility no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
 /* ─── Animation Utilities ────────────────────────── */
 @utility animate-fade-in {
   animation: fadeIn 0.4s ease-out forwards;
