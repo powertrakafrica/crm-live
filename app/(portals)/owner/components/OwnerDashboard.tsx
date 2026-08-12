@@ -145,7 +145,7 @@ export function OwnerDashboard({ onViewAllLeads }: { onViewAllLeads?: () => void
                 <div>
                     <h2 className="text-2xl font-heading font-bold text-charcoal-950">Management Suite</h2>
                     <p className="text-charcoal-500 font-medium">Track performance, manage leads, and schedule viewings.</p>
-                    <Link href="/agent-application" className="inline-flex items-center gap-1 text-sm font-bold text-brand-600 hover:text-brand-700 mt-2">
+                    <Link href="/become-agent" className="inline-flex items-center gap-1 text-sm font-bold text-brand-600 hover:text-brand-700 mt-2">
                         <ShieldCheck className="h-4 w-4" /> Become an Agent
                     </Link>
                 </div>
