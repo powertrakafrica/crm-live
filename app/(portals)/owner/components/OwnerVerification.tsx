@@ -5,6 +5,7 @@ import { Activity, Building, Camera, CheckCircle2, ChevronRight, Clock, FileText
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
+import { DocumentViewer } from "@/components/ui/DocumentViewer";
 import { fileProxyUrl, ownerApi, uploadApi, verificationApi } from "@/lib/api";
 
 interface OwnerVerificationItem {
@@ -55,6 +56,7 @@ export function OwnerVerification() {
     const [uploading, setUploading] = useState<Record<string, boolean>>({});
     const [uploadError, setUploadError] = useState<Record<string, string>>({});
     const [submitting, setSubmitting] = useState(false);
+    const [viewer, setViewer] = useState<{ url: string; title: string } | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const refreshVerifications = () => {
@@ -171,6 +173,12 @@ export function OwnerVerification() {
 
     return (
         <div className="space-y-6">
+            <DocumentViewer
+                url={viewer?.url ?? null}
+                title={viewer?.title}
+                isOpen={!!viewer}
+                onClose={() => setViewer(null)}
+            />
             <div>
                 <h2 className="text-2xl font-heading font-bold text-charcoal-950">The Trust Engine</h2>
                 <p className="text-charcoal-500 font-medium">Clear verification to "Level Up" your listings for top-tier search placement.</p>
@@ -346,14 +354,13 @@ export function OwnerVerification() {
                                                                 </div>
                                                                 {hasEvidence ? (
                                                                     fileProxyUrl(check!.evidenceUrl) && (
-                                                                        <a
-                                                                            href={fileProxyUrl(check!.evidenceUrl)!}
-                                                                            target="_blank"
-                                                                            rel="noopener noreferrer"
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => setViewer({ url: fileProxyUrl(check!.evidenceUrl) ?? "", title: doc.label })}
                                                                             className="text-xs font-semibold text-brand-600 hover:text-brand-700"
                                                                         >
                                                                             View
-                                                                        </a>
+                                                                        </button>
                                                                     )
                                                                 ) : (
                                                                     <Button

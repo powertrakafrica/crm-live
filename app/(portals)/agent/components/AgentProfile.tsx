@@ -22,6 +22,7 @@ import {
   CardTitle,
   CardDescription,
 } from "@/components/ui/Card";
+import { DocumentViewer } from "@/components/ui/DocumentViewer";
 import { profileApi, uploadApi, fileProxyUrl, type AgentDocument } from "@/lib/api";
 import { CoveragePicker } from "./CoveragePicker";
 import { EditPersonalInfoModal } from "./EditPersonalInfoModal";
@@ -129,6 +130,7 @@ export function AgentProfile() {
   });
 
   const [templateUrl, setTemplateUrl] = useState<string | null>(null);
+  const [viewer, setViewer] = useState<{ url: string; title: string } | null>(null);
 
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const ghanaCardInputRef = useRef<HTMLInputElement>(null);
@@ -286,6 +288,12 @@ export function AgentProfile() {
 
   return (
     <div className="space-y-6">
+      <DocumentViewer
+        url={viewer?.url ?? null}
+        title={viewer?.title}
+        isOpen={!!viewer}
+        onClose={() => setViewer(null)}
+      />
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h2 className="text-2xl font-heading font-bold text-charcoal-950">
@@ -417,14 +425,13 @@ export function AgentProfile() {
                       >
                         {ghanaCardDoc.status}
                       </span>
-                      <a
-                        href={fileProxyUrl(ghanaCardDoc.fileUrl) ?? "#"}
-                        target="_blank"
-                        rel="noopener noreferrer"
+                      <button
+                        type="button"
+                        onClick={() => setViewer({ url: fileProxyUrl(ghanaCardDoc.fileUrl) ?? "", title: "Ghana Card" })}
                         className="text-xs font-medium text-brand-600 hover:text-brand-700 flex items-center gap-1"
                       >
                         <Eye className="h-3 w-3" /> View
-                      </a>
+                      </button>
                     </>
                   )}
                   <Button
@@ -507,14 +514,13 @@ export function AgentProfile() {
                       >
                         {partnershipDoc.status}
                       </span>
-                      <a
-                        href={fileProxyUrl(partnershipDoc.fileUrl) ?? "#"}
-                        target="_blank"
-                        rel="noopener noreferrer"
+                      <button
+                        type="button"
+                        onClick={() => setViewer({ url: fileProxyUrl(partnershipDoc.fileUrl) ?? "", title: "Partnership Agreement" })}
                         className="text-xs font-medium text-brand-600 hover:text-brand-700 flex items-center gap-1"
                       >
                         <Eye className="h-3 w-3" /> View
-                      </a>
+                      </button>
                     </>
                   )}
                   {templateUrl && (

@@ -30,10 +30,18 @@ function detectKind(url: string): DocKind {
 // is kept for anything we can't preview inline.
 export function DocumentViewer({ url, title = "Document", isOpen, onClose }: DocumentViewerProps) {
     const [loading, setLoading] = useState(true);
+    const [trackedUrl, setTrackedUrl] = useState<string | null>(null);
+
+    // Render-phase reset: when the viewer opens (or the url changes while open),
+    // restart the spinner. This is the React-documented "adjust state when a
+    // prop changes" pattern and avoids setState-in-effect.
+    if (isOpen && url !== trackedUrl) {
+        setTrackedUrl(url);
+        setLoading(true);
+    }
 
     useEffect(() => {
         if (!isOpen) return;
-        setLoading(true);
         const onKey = (e: KeyboardEvent) => {
             if (e.key === "Escape") onClose();
         };
@@ -122,7 +130,7 @@ export function DocumentViewer({ url, title = "Document", isOpen, onClose }: Doc
                     {kind === "other" && (
                         <div className="flex flex-col items-center justify-center gap-3 h-full text-slate-600">
                             <FileText className="h-12 w-12 text-slate-400" />
-                            <p className="text-sm font-medium">Inline preview isn't available for this file type.</p>
+                            <p className="text-sm font-medium">Inline preview isn&apos;t available for this file type.</p>
                             <a
                                 href={url}
                                 target="_blank"
