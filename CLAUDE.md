@@ -15,6 +15,7 @@ Agent instructions for working in this repo. Read before editing.
 - **Never print `DATABASE_URL` / connection strings.** (You rarely touch DB code here, but the rule holds.)
 - **Never write to the shared remote DB during e2e.**
 - Git: local commits on `dev` are permitted; **push / merge / deploy require explicit go-ahead.**
+- **prod only receives merges from `dev` — never direct commits.** A change needed on prod goes to `dev` first and is merged. This prevents prod↔dev divergence (the 2026-08-11 teps-web reconciliation root cause — a direct prod commit `e7ad0a3` was never merged back to dev, blocking every prod deploy). **This repo was the offender; never commit directly to `prod`.**
 
 ## Lint traps (these are ERRORS)
 
