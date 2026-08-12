@@ -138,8 +138,8 @@ export default function Header() {
         searchDebounceRef.current = setTimeout(() => {
             propertiesApi
                 .list({ search: q, limit: "5", status: "Live" })
-                .then((res: any) => {
-                    const rows: any[] = res.data ?? [];
+                .then((res: unknown) => {
+                    const rows = (res as { data: SearchSuggestion[] | null })?.data ?? [];
                     setSuggestions(rows.map((r) => ({ id: r.id, title: r.title, location: r.location })));
                     setShowSuggestions(true);
                 })
