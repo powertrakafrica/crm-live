@@ -8,6 +8,7 @@ import PropertyCard from "@/components/PropertyCard";
 import InteractiveMap from "@/components/InteractiveMap";
 import { geoApi, propertiesApi } from "@/lib/api";
 import type { GeoConstituencyDetail } from "@/lib/coverage";
+import { imageVariantUrl } from "@/lib/images";
 
 interface ApiProperty {
     id: number;
@@ -207,7 +208,7 @@ export default function ConstituencyPage({ params }: { params: Promise<{ constit
                                                 location={prop.location}
                                                 bedrooms={prop.bedrooms}
                                                 bathrooms={prop.bathrooms}
-                                                imageUrl={prop.images?.[0]?.url ?? "/placeholder.jpg"}
+                                                imageUrl={imageVariantUrl(prop.images?.[0], "thumb") ?? "/placeholder.jpg"}
                                                 isVerified={prop.isVerified}
                                                 category={prop.category as "Rent" | "Sale" | "Rent-to-Own"}
                                             />

@@ -5,6 +5,7 @@ import { Search, Map as MapIcon, ShieldCheck, Home, MapPin, SlidersHorizontal } 
 import PropertyCard from "@/components/PropertyCard";
 import InteractiveMap from "@/components/InteractiveMap";
 import { propertiesApi } from "@/lib/api";
+import { imageVariantUrl } from "@/lib/images";
 import { SavedSearches } from "./SavedSearches";
 
 interface Property {
@@ -93,8 +94,8 @@ export function ClientDiscovery() {
     }, [filteredProperties]);
 
     const getImageUrl = (p: Property) => {
-        const primary = p.images?.find((img: any) => img.isPrimary);
-        return primary?.url || p.images?.[0]?.url || "https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?q=80&w=2070&auto=format&fit=crop";
+        const primary = p.images?.find((img: { isPrimary: boolean; url: string }) => img.isPrimary);
+        return imageVariantUrl(primary, "thumb") ?? imageVariantUrl(p.images?.[0], "thumb") ?? "https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?q=80&w=2070&auto=format&fit=crop";
     };
 
     const validPeriod = (p: string): "month" | "year" | "one-off" => {

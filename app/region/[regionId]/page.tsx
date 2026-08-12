@@ -9,6 +9,7 @@ import PropertyCard from "@/components/PropertyCard";
 import { geoApi, propertiesApi } from "@/lib/api";
 import { useConstituencies } from "@/lib/hooks/geo";
 import type { GeoConstituency, GeoRegionDetail } from "@/lib/coverage";
+import { imageVariantUrl } from "@/lib/images";
 
 interface FeaturedProperty {
     id: number;
@@ -211,7 +212,7 @@ export default function RegionPage({ params }: { params: Promise<{ regionId: str
                                         location={property.location}
                                         bedrooms={property.bedrooms}
                                         bathrooms={property.bathrooms}
-                                        imageUrl={property.images?.[0]?.url ?? "/placeholder.jpg"}
+                                        imageUrl={imageVariantUrl(property.images?.[0], "thumb") ?? "/placeholder.jpg"}
                                         isVerified={property.isVerified}
                                         category={property.category as "Rent" | "Sale" | "Rent-to-Own"}
                                     />

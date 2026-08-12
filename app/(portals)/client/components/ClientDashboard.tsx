@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/Badge";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import PropertyCard from "@/components/PropertyCard";
 import { clientApi } from "@/lib/api";
+import { imageVariantUrl } from "@/lib/images";
 
 const STAGES = ["Payment Confirmed", "Agent Assigned", "Viewing Scheduled", "Report Delivered"];
 
@@ -214,7 +215,7 @@ export function ClientDashboard() {
                                     location={property.location}
                                     bedrooms={property.bedrooms ?? 0}
                                     bathrooms={property.bathrooms ?? 0}
-                                    imageUrl={property.images?.[0]?.url ?? "/placeholder.jpg"}
+                                    imageUrl={imageVariantUrl(property.images?.[0], "thumb") ?? "/placeholder.jpg"}
                                     isVerified={property.isVerified ?? false}
                                     category={property.category ?? "Sale"}
                                 />
