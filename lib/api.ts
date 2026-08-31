@@ -1,4 +1,4 @@
-import type { GeoConstituency, GeoConstituencyDetail, GeoRegion, GeoRegionDetail } from "./coverage";
+import type { GeoConstituency, GeoConstituencyDetail, GeoFeatureCollection, GeoRegion, GeoRegionDetail } from "./coverage";
 
 export const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:9001/api";
 
@@ -428,6 +428,18 @@ export const geoApi = {
   constituency: (constituencyId: number) =>
     fetchJson<GeoConstituencyDetail>(`/geo/constituencies/${constituencyId}`),
   allConstituencies: () => fetchJson<GeoConstituency[]>(`/geo/constituencies`),
+  // Live-only, paginated properties within a constituency. Semantic alias of
+  // propertiesApi.list({ constituencyId }) — exposed so callers can address it
+  // by constituency without re-deriving the filter.
+  constituencyProperties: (constituencyId: number, filters?: Record<string, string>) => {
+    const qs = filters ? "?" + new URLSearchParams(filters).toString() : "";
+    return fetchJson<{ data: unknown[]; pagination: { limit: number; page: number; totalPages: number; total: number } }>(`/geo/constituencies/${constituencyId}/properties${qs}`);
+  },
+  // GeoJSON boundaries served from /api/geojson (sourced from the geo DB, not
+  // the static public/json/gh.json the map uses today).
+  ghanaGeoJson: () => fetchJson<GeoFeatureCollection>(`/geojson/ghana`),
+  regionGeoJson: (regionId: number) =>
+    fetchJson<GeoFeatureCollection>(`/geojson/regions/${regionId}`),
 };
 
 // ─── Verifications ───────────────────────────────────

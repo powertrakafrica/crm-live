@@ -42,6 +42,21 @@ export interface GeoConstituencyDetail {
   regionName?: string;
 }
 
+// GeoJSON responses from /api/geojson/*. The backend stores the raw geometry
+// object per row (country_regions.geo_json) and wraps each as a Feature inside
+// a FeatureCollection. `geometry` is opaque GeoJSON; `properties` carries the
+// TEPS id/name (and the parent country for a single-region response).
+export interface GeoFeature {
+  geometry: unknown;
+  properties: { country?: { code: string; name: string }; id: number; name: string };
+  type: "Feature";
+}
+
+export interface GeoFeatureCollection {
+  features: GeoFeature[];
+  type: "FeatureCollection";
+}
+
 /** Extract items from a GET /profile/agent `coverage` object (tolerant of null/undefined). */
 export function coverageToItems(coverage: unknown): CoverageItem[] {
   if (!coverage || typeof coverage !== "object") return [];
