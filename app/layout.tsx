@@ -4,6 +4,7 @@ import "./globals.css";
 
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
+import { SITE_NAME, SITE_URL } from "@/lib/site";
 
 const inter = Inter({
   variable: "--font-inter",
@@ -16,9 +17,18 @@ const outfit = Outfit({
 });
 
 export const metadata: Metadata = {
-  title: "TEPS | Estates & Property Services",
+  metadataBase: new URL(SITE_URL),
+  // Child routes set a short title ("Properties"); the template brands it.
+  title: {
+    default: "TEPS | Estates & Property Services",
+    template: `%s | ${SITE_NAME}`,
+  },
   description:
     "Find verified properties in Ghana. No scams, just verified homes, land, and commercial spaces.",
+  openGraph: {
+    siteName: SITE_NAME,
+    type: "website",
+  },
 };
 // root layout
 export default function RootLayout({
