@@ -8,6 +8,7 @@ const PUBLIC_PATHS = [
     "/auth/login",
     "/auth/reset-password",
     "/auth/signup",
+    "/auth/verify-email",
     "/properties",
     "/regions",
 ];

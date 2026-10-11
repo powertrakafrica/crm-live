@@ -2,13 +2,11 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { ShieldCheck, UserCheck, Home, Key, Eye, EyeOff, ArrowRight } from "lucide-react";
+import { ShieldCheck, UserCheck, Home, Key, Eye, EyeOff, ArrowRight, MailCheck } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { api } from "@/lib/api";
 
 export default function SignupPage() {
-    const router = useRouter();
     const [role, setRole] = useState("client");
     const [fullName, setFullName] = useState("");
     const [email, setEmail] = useState("");
@@ -17,6 +15,7 @@ export default function SignupPage() {
     const [showPassword, setShowPassword] = useState(false);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
+    const [submitted, setSubmitted] = useState(false);
 
     async function handleSubmit(e: React.FormEvent) {
         e.preventDefault();
@@ -24,7 +23,9 @@ export default function SignupPage() {
         setError("");
         try {
             await api.register({ email, password, fullName, phone, role });
-            router.push("/auth/login");
+            // No redirect to login: a new account cannot sign in until the
+            // emailed link is opened.
+            setSubmitted(true);
         } catch (err: any) {
             setError(err.message || "Registration failed");
         } finally {
@@ -58,6 +59,25 @@ export default function SignupPage() {
                 </div>
 
                 <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 sm:p-8">
+                    {submitted ? (
+                        <div className="space-y-4 text-center">
+                            <div className="inline-flex items-center justify-center h-12 w-12 rounded-xl bg-emerald-50 text-emerald-600">
+                                <MailCheck className="h-6 w-6" />
+                            </div>
+                            <h2 className="text-lg font-heading font-bold text-slate-900">Check your email</h2>
+                            <p className="text-sm text-slate-700">
+                                We&apos;ve sent a message to <span className="font-semibold">{email.trim()}</span>. Open the link in
+                                it to finish creating your account, then sign in. The link expires in 24 hours.
+                            </p>
+                            <p className="text-xs text-slate-500">
+                                Nothing arrived? Check your spam folder, or{" "}
+                                <Link href="/auth/verify-email" className="font-semibold text-brand-600 hover:text-brand-700">
+                                    send the link again
+                                </Link>
+                                .
+                            </p>
+                        </div>
+                    ) : (
                     <form className="space-y-6" onSubmit={handleSubmit}>
                         {error && (
                             <div className="rounded-xl bg-red-50 p-3 text-sm font-medium text-red-700 border border-red-100">
@@ -193,6 +213,7 @@ export default function SignupPage() {
                             {loading ? "Creating account..." : "Create Account"}
                         </Button>
                     </form>
+                    )}
                 </div>
             </div>
         </div>

@@ -177,9 +177,22 @@ export const api = {
             body: JSON.stringify(body),
         }),
     register: (body: { email: string; password: string; fullName: string; phone?: string; role?: string }) =>
-        fetchJsonRaw<{ id: number; email: string; fullName: string; role: string }>("/auth/register", {
+        // The backend answers identically whether the account was created or the
+        // address was already registered (it must not reveal which); the user
+        // finishes signup from the link in their inbox.
+        fetchJsonRaw<{ message: string }>("/auth/register", {
             method: "POST",
             body: JSON.stringify(body),
+        }),
+    verifyEmail: (token: string) =>
+        fetchJsonRaw<{ message: string }>("/auth/verify-email", {
+            method: "POST",
+            body: JSON.stringify({ token }),
+        }),
+    resendVerification: (email: string) =>
+        fetchJsonRaw<{ message: string }>("/auth/resend-verification", {
+            method: "POST",
+            body: JSON.stringify({ email }),
         }),
     me: () => fetchMe(),
     forgotPassword: (email: string) =>

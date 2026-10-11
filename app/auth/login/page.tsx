@@ -77,6 +77,18 @@ export default function LoginPage() {
                         {error && (
                             <div className="rounded-xl bg-red-50 p-3 text-sm font-medium text-red-700 border border-red-100">
                                 {error}
+                                {/* The backend gives an unverified account the same error as
+                                    a wrong password (so signup can't be used to discover
+                                    accounts), so point new users at the fix here. */}
+                                {error === "Invalid credentials" && (
+                                    <p className="mt-1 font-normal">
+                                        Just signed up? Confirm your email first —{" "}
+                                        <Link href="/auth/verify-email" className="font-semibold underline">
+                                            resend the link
+                                        </Link>
+                                        .
+                                    </p>
+                                )}
                             </div>
                         )}
 
