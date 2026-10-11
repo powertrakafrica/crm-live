@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { MapPin, ChevronRight, Loader2 } from "lucide-react";
@@ -8,18 +8,10 @@ import InteractiveMap from "@/components/InteractiveMap";
 import { Card } from "@/components/ui/Card";
 import { propertiesApi } from "@/lib/api";
 import { useGeoRegions } from "@/lib/hooks/geo";
+import { findRegionByName } from "@/lib/regionNames";
 
 interface PropertyListResponse {
   pagination?: { total: number };
-}
-
-function normalizeName(raw: string): string {
-  return raw
-    .toLowerCase()
-    .replace(/\s+/g, "-")
-    .replace(/[^a-z0-9-]/g, "")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "");
 }
 
 export default function RegionsPage() {
@@ -28,13 +20,6 @@ export default function RegionsPage() {
   const [regionCounts, setRegionCounts] = useState<Record<number, number>>({});
   const [countsLoading, setCountsLoading] = useState(true);
   const [hoveredRegion, setHoveredRegion] = useState<number | null>(null);
-
-  // name → numeric id, for resolving the map's region-name clicks.
-  const regionByName = useMemo(() => {
-    const m = new Map<string, number>();
-    for (const r of regions) m.set(normalizeName(r.name), r.id);
-    return m;
-  }, [regions]);
 
   useEffect(() => {
     if (regions.length === 0) return;
@@ -56,9 +41,11 @@ export default function RegionsPage() {
     });
   }, [regions]);
 
-  const handleMapRegionSelect = (rawCode: string) => {
-    const id = regionByName.get(normalizeName(rawCode));
-    if (id != null) router.push(`/region/${id}`);
+  // The map reports the GeoJSON feature name ("Greater Accra"); the API calls
+  // the same region "Greater Accra Region". findRegionByName bridges the two.
+  const handleMapRegionSelect = (featureName: string) => {
+    const region = findRegionByName(regions, featureName);
+    if (region) router.push(`/region/${region.id}`);
   };
 
   return (

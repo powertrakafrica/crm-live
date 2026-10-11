@@ -11,7 +11,8 @@ import InteractiveMap from "@/components/InteractiveMap";
 import { PhotonSearch } from "@/components/PhotonSearch";
 import { propertiesApi } from "@/lib/api";
 import { REGIONS } from "@/lib/data";
-import { fetchRegions, type GeoRegion } from "@/lib/geo";
+import { fetchRegions, slugify, type GeoRegion } from "@/lib/geo";
+import { findRegionByName } from "@/lib/regionNames";
 
 interface FeaturedProperty {
     id: number;
@@ -31,6 +32,9 @@ export default function Home() {
     const [featured, setFeatured] = useState<FeaturedProperty[]>([]);
     const [loading, setLoading] = useState(true);
     const [regionCounts, setRegionCounts] = useState<Record<string, number>>({});
+    // Mock REGIONS slug id ("greater-accra") → real numeric geo id. /region/[id]
+    // is keyed by the numeric id, so tiles and map clicks link through this.
+    const [regionIds, setRegionIds] = useState<Record<string, number>>({});
     const [searchLocation, setSearchLocation] = useState("");
 
     useEffect(() => {
@@ -51,11 +55,13 @@ export default function Home() {
             const realRegions = await fetchRegions().catch(() => [] as GeoRegion[]);
             const idMap: Record<string, number> = {};
             for (const mock of REGIONS) {
-                const real = realRegions.find(
-                    (rr) => rr.name.toLowerCase() === mock.name.toLowerCase(),
-                );
+                // The API names regions "Greater Accra Region"; the mock list says
+                // "Greater Accra". A plain name compare never matched, so every
+                // tile showed its hard-coded mock listing count.
+                const real = findRegionByName(realRegions, mock.name);
                 if (real) idMap[mock.id] = real.id;
             }
+            setRegionIds(idMap);
             const results = await Promise.all(
                 REGIONS.map((r) => {
                     const numId = idMap[r.id];
@@ -201,7 +207,7 @@ export default function Home() {
                         {REGIONS.map((region) => (
                             <Link
                                 key={region.id}
-                                href={`/region/${region.id}`}
+                                href={`/region/${regionIds[region.id] ?? region.id}`}
                                 className="group p-5 border border-slate-200 rounded-xl bg-slate-50 hover:bg-brand-50 hover:border-brand-200 transition-all text-center"
                             >
                                 <MapPin className="h-5 w-5 text-slate-400 group-hover:text-brand-600 mx-auto mb-2 transition-colors" />
@@ -260,9 +266,13 @@ export default function Home() {
                     <div className="bg-white rounded-2xl p-3 sm:p-4 shadow-sm border border-slate-200">
                         <InteractiveMap
                             height="h-[500px] sm:h-[600px]"
-                            onRegionSelect={(code) => {
-                                const regionId = code.toLowerCase().replace(/\s+/g, "-");
-                                router.push(`/region/${regionId}`);
+                            onRegionSelect={(featureName) => {
+                                // The map reports the GeoJSON feature name. Prefer the
+                                // numeric id; if regions haven't loaded yet, fall back to
+                                // the slug, which /region/[regionId] resolves itself.
+                                const mock = findRegionByName(REGIONS, featureName);
+                                const target = (mock && regionIds[mock.id]) ?? mock?.id ?? slugify(featureName);
+                                router.push(`/region/${target}`);
                             }}
                         />
                     </div>

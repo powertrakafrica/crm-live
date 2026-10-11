@@ -14,6 +14,7 @@
 
 import { geoApi } from "./api";
 import { CONSTITUENCIES, REGIONS } from "./data";
+import { findRegionByName } from "./regionNames";
 
 export type { GeoConstituency, GeoRegion } from "./coverage";
 import type { GeoConstituency, GeoRegion } from "./coverage";
@@ -63,7 +64,10 @@ export async function getRegionById(id: number): Promise<GeoRegion | null> {
  * Match order, most specific first:
  *  1. a real region whose slugified name equals the slug,
  *  2. a real region whose name equals the (decoded) slug verbatim,
- *  3. a mock REGIONS entry whose id/name matches the slug, bridged to a real
+ *  3. a real region with the same canonical regionKey — this is the one that
+ *     matches in practice: the API names regions "Greater Accra Region" while
+ *     slugs and map features say "greater-accra" / "Greater Accra",
+ *  4. a mock REGIONS entry whose id/name matches the slug, bridged to a real
  *     region by name — covers the hand-authored slug URLs the home/regions
  *     pages still emit ("greater-accra") even when the real name slugifies
  *     differently.
@@ -74,11 +78,12 @@ export async function getRegionBySlug(slug: string): Promise<GeoRegion | null> {
 
     let match = regions.find((r) => slugify(r.name) === slug);
     if (!match) match = regions.find((r) => ciEquals(r.name, decoded));
+    if (!match) match = findRegionByName(regions, decoded);
     if (!match) {
         const mock = REGIONS.find(
             (r) => r.id === slug || slugify(r.name) === slug || ciEquals(r.name, decoded),
         );
-        if (mock) match = regions.find((r) => ciEquals(r.name, mock.name));
+        if (mock) match = findRegionByName(regions, mock.name);
     }
     return match ?? null;
 }
@@ -110,7 +115,7 @@ export async function getConstituencyBySlug(slug: string): Promise<GeoConstituen
  */
 export function mockRegionFor(real: GeoRegion | null) {
     if (!real) return undefined;
-    return REGIONS.find((r) => ciEquals(r.name, real.name));
+    return findRegionByName(REGIONS, real.name);
 }
 
 /** Find the mock Constituency entry for a real constituency (district list). */

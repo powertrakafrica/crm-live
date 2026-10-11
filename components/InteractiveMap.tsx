@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import "leaflet/dist/leaflet.css";
 
+import { regionKey } from "@/lib/regionNames";
+
 const MapContainer = dynamic(
     () => import("react-leaflet").then((mod) => mod.MapContainer),
     { ssr: false }
@@ -55,7 +57,18 @@ export default function InteractiveMap({
     markers,
 }: InteractiveMapProps) {
     const [geoData, setGeoData] = useState<any>(null);
+    // Layers keyed by `regionKey(feature name)`. Callers pass the backend's
+    // region name ("Greater Accra Region") while the GeoJSON says "Greater
+    // Accra", so every name comparison here goes through regionKey.
     const layerRefs = useRef<Record<string, any>>({});
+    const highlightKey = highlightFeatureName ? regionKey(highlightFeatureName) : "";
+    // The hover handlers are bound once, when the GeoJSON layer is created, but
+    // the highlighted region usually arrives later (after the region loads). They
+    // read the current key from this ref instead of a stale closure.
+    const highlightKeyRef = useRef(highlightKey);
+    useEffect(() => {
+        highlightKeyRef.current = highlightKey;
+    });
 
     useEffect(() => {
         // Clear layer refs when geoData changes
@@ -65,16 +78,16 @@ export default function InteractiveMap({
     // Apply highlight styles when highlightFeatureName changes
     useEffect(() => {
         if (!geoData) return;
-        Object.entries(layerRefs.current).forEach(([name, layer]) => {
+        Object.entries(layerRefs.current).forEach(([key, layer]) => {
             if (!layer || typeof layer.setStyle !== "function") return;
-            const isHighlighted = name === highlightFeatureName;
+            const isHighlighted = key === highlightKey;
             layer.setStyle({
                 fillColor: isHighlighted ? "#2563eb" : "#3b82f6",
                 weight: isHighlighted ? 3 : 2,
                 fillOpacity: isHighlighted ? 0.4 : 0.1,
             });
         });
-    }, [highlightFeatureName, geoData]);
+    }, [highlightKey, geoData]);
 
     useEffect(() => {
         fetch(geoJsonUrl)
@@ -124,13 +137,14 @@ export default function InteractiveMap({
             >
                 <TileLayer
                     attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                    url="https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png"
+                    maxZoom={19}
+                    url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
                 />
                 <GeoJSON
                     data={geoData}
                     style={(feature) => {
                         const name = feature?.properties?.name;
-                        const isHighlighted = name === highlightFeatureName;
+                        const isHighlighted = !!name && regionKey(name) === highlightKey;
                         return {
                             fillColor: isHighlighted ? "#2563eb" : "#3b82f6",
                             weight: isHighlighted ? 3 : 2,
@@ -142,9 +156,9 @@ export default function InteractiveMap({
                     }}
                     onEachFeature={(feature, layer) => {
                         const regionName = feature.properties?.name || "Unknown Region";
-                        if (regionName) {
-                            layerRefs.current[regionName] = layer;
-                        }
+                        const featureKey = regionKey(regionName);
+                        const isHighlighted = () => featureKey === highlightKeyRef.current;
+                        layerRefs.current[featureKey] = layer;
                         layer.bindTooltip(regionName, {
                             permanent: false,
                             direction: "center",
@@ -155,7 +169,7 @@ export default function InteractiveMap({
                             mouseover: (e) => {
                                 const target = e.target;
                                 // Only apply hover if not the highlighted feature
-                                if (regionName !== highlightFeatureName) {
+                                if (!isHighlighted()) {
                                     target.setStyle({
                                         fillOpacity: 0.3,
                                         weight: 3,
@@ -165,7 +179,7 @@ export default function InteractiveMap({
                             },
                             mouseout: (e) => {
                                 const target = e.target;
-                                if (regionName !== highlightFeatureName) {
+                                if (!isHighlighted()) {
                                     target.setStyle({
                                         fillOpacity: 0.1,
                                         weight: 2,

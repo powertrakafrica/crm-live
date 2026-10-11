@@ -3,6 +3,8 @@
 import { useEffect, useRef } from "react";
 import { useMap } from "react-leaflet";
 
+import { regionKey } from "@/lib/regionNames";
+
 interface MapControllerProps {
     fitToFeatureName?: string;
     layerRefs: React.MutableRefObject<Record<string, any>>;
@@ -22,7 +24,8 @@ export default function MapController({ fitToFeatureName, layerRefs }: MapContro
         }
 
         const tryFit = () => {
-            const layer = layerRefs.current[fitToFeatureName];
+            // layerRefs is keyed by regionKey (see InteractiveMap).
+            const layer = layerRefs.current[regionKey(fitToFeatureName)];
             if (layer && typeof layer.getBounds === "function") {
                 map.fitBounds(layer.getBounds(), { padding: [40, 40], animate: true });
                 if (timerRef.current) {

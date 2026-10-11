@@ -2,12 +2,14 @@
 
 import { use, useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ArrowLeft, MapPinned, Loader2 } from "lucide-react";
 import InteractiveMap from "@/components/InteractiveMap";
 import { Card } from "@/components/ui/Card";
 import PropertyCard from "@/components/PropertyCard";
 import { geoApi, propertiesApi } from "@/lib/api";
-import { useConstituencies } from "@/lib/hooks/geo";
+import { useConstituencies, useGeoRegions } from "@/lib/hooks/geo";
+import { findRegionByName } from "@/lib/regionNames";
 import type { GeoConstituency, GeoRegionDetail } from "@/lib/coverage";
 import { imageVariantUrl } from "@/lib/images";
 
@@ -31,11 +33,32 @@ interface PropertyListResponse {
     pagination?: { total: number };
 }
 
+// decodeURIComponent throws on a malformed escape ("%E0%A4%A"); a bad URL
+// should fall through to "Region not found", not crash the page.
+function safeDecode(value: string): string {
+    try {
+        return decodeURIComponent(value);
+    } catch {
+        return value;
+    }
+}
+
 export default function RegionPage({ params }: { params: Promise<{ regionId: string }> }) {
     const resolvedParams = use(params);
+    const router = useRouter();
     const rawRegionId = resolvedParams.regionId;
-    const numericRegionId = Number(rawRegionId);
-    const regionId = Number.isNaN(numericRegionId) ? null : numericRegionId;
+    // The canonical URL is /region/<numeric id>. A non-numeric segment is a name
+    // slug ("greater-accra") from an old link or bookmark: resolve it against
+    // the real regions and redirect, rather than showing "Region not found".
+    const isNumericId = /^\d+$/.test(rawRegionId);
+    const regionId = isNumericId ? Number(rawRegionId) : null;
+
+    const { data: allRegions, loading: regionsLoading, error: regionsError, retry: retryRegions } = useGeoRegions();
+    const slugMatch = isNumericId ? undefined : findRegionByName(allRegions, safeDecode(rawRegionId));
+    const slugMatchId = slugMatch?.id;
+    useEffect(() => {
+        if (slugMatchId != null) router.replace(`/region/${slugMatchId}`);
+    }, [slugMatchId, router]);
 
     const [region, setRegion] = useState<GeoRegionDetail | null>(null);
     const [regionError, setRegionError] = useState("");
@@ -74,6 +97,29 @@ export default function RegionPage({ params }: { params: Promise<{ regionId: str
             .finally(() => setLoading(false));
     }, [regionId]);
 
+    if (regionId == null && (regionsLoading || slugMatchId != null)) {
+        // Resolving a slug URL (or mid-redirect to the numeric one).
+        return (
+            <div className="flex items-center justify-center min-h-screen bg-slate-50">
+                <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
+            </div>
+        );
+    }
+
+    if (regionId == null && regionsError) {
+        // The slug could not be resolved because the regions request failed —
+        // that is not the same as an unknown region, so offer a retry.
+        return (
+            <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50 text-center px-4">
+                <h1 className="text-2xl font-heading font-bold text-slate-900 mb-2">Could not load regions</h1>
+                <p className="text-sm font-semibold text-red-600 mb-4">{regionsError}</p>
+                <button type="button" onClick={retryRegions} className="text-brand-600 font-bold hover:text-brand-700">
+                    Try again
+                </button>
+            </div>
+        );
+    }
+
     if (regionId == null) {
         return (
             <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50 text-center px-4">
@@ -83,7 +129,7 @@ export default function RegionPage({ params }: { params: Promise<{ regionId: str
         );
     }
 
-    const regionName = region?.name ?? decodeURIComponent(rawRegionId);
+    const regionName = region?.name ?? safeDecode(rawRegionId);
 
     return (
         <div className="flex flex-col min-h-screen bg-slate-50">
