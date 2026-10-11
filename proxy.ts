@@ -2,7 +2,20 @@ import { jwtVerify, decodeJwt, errors as joseErrors } from "jose";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-const PUBLIC_PATHS = ["/", "/auth/login", "/auth/signup", "/properties", "/about", "/contact"];
+const PUBLIC_PATHS = [
+    "/",
+    "/auth/forgot-password",
+    "/auth/login",
+    "/auth/reset-password",
+    "/auth/signup",
+    "/properties",
+    "/regions",
+];
+
+// Public browsing routes with a dynamic segment (property / region /
+// constituency detail pages). These only call public API endpoints, so they
+// must be reachable — and indexable — without an account.
+const PUBLIC_PREFIXES = ["/properties/", "/property/", "/region/", "/constituency/"];
 
 // Server-only secret (NOT NEXT_PUBLIC_, so it never reaches the browser). Must
 // match the backend's JWT_SECRET. When unset, we fall back to a presence-only
@@ -54,12 +67,39 @@ function decodeRole(token: string): string {
     }
 }
 
+// Sign-in pages a user with a live session has no reason to see.
+const SIGNED_OUT_ONLY_PATHS = ["/auth/login", "/auth/signup"];
+
+// Where to send an already-signed-in visitor who opens a sign-in page, or null
+// to show the page. Only acts on a cookie whose signature AND expiry verify:
+// an expired or unverifiable cookie must still reach the login form, otherwise
+// a dead session could never sign in again. Admins are left alone — their home
+// is the separate CRM app, which the login page itself redirects to.
+async function signedInHome(request: NextRequest): Promise<null | string> {
+    if (!secretKey) return null;
+    const token = request.cookies.get("teps_access_token")?.value;
+    if (!token) return null;
+    try {
+        const { payload } = await jwtVerify<{ role?: string }>(token, secretKey, { algorithms: ["HS256"] });
+        const role = payload.role ?? "";
+        return role !== "admin" && role in ROLE_HOME ? ROLE_HOME[role] : null;
+    } catch {
+        return null;
+    }
+}
+
 export async function proxy(request: NextRequest) {
     const { pathname } = request.nextUrl;
 
+    if (SIGNED_OUT_ONLY_PATHS.includes(pathname)) {
+        const home = await signedInHome(request);
+        if (home) return NextResponse.redirect(new URL(home, request.url));
+    }
+
     // Allow public paths and static assets
     if (
-        PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith("/properties/")) ||
+        PUBLIC_PATHS.includes(pathname) ||
+        PUBLIC_PREFIXES.some((p) => pathname.startsWith(p)) ||
         pathname.startsWith("/_next") ||
         pathname.startsWith("/img") ||
         pathname.startsWith("/api")

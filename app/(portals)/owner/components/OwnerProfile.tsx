@@ -62,7 +62,8 @@ export function OwnerProfile() {
         setError("");
         try {
             const presign = await uploadApi.presign(file.name, "documents", file.type);
-            await fetch(presign.url, { method: "PUT", body: file, headers: { "Content-Type": file.type } });
+            const put = await fetch(presign.url, { method: "PUT", body: file, headers: { "Content-Type": file.type } });
+            if (!put.ok) throw new Error("Upload failed");
             // Send the real card number + the uploaded scan URL to the ghana-card
             // endpoint, which stores the doc in agent_documents and writes
             // ghanaCardNumber on the user. The old code discarded the URL and wrote

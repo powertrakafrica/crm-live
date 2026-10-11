@@ -93,7 +93,9 @@ export async function fetchJsonRaw<T>(path: string, options?: RequestInit): Prom
     });
     const data = await res.json().catch(() => ({ error: "Network error" }));
     if (!res.ok) {
-        throw Object.assign(new Error(data.error || "Request failed"), { status: res.status });
+        // `code` carries the backend's machine-readable error code (e.g.
+        // AGENT_NOT_VERIFIED) so callers can branch on it rather than the message.
+        throw Object.assign(new Error(data.error || "Request failed"), { code: data.code as string | undefined, status: res.status });
     }
     return data as T;
 }
@@ -180,6 +182,16 @@ export const api = {
             body: JSON.stringify(body),
         }),
     me: () => fetchMe(),
+    forgotPassword: (email: string) =>
+        fetchJsonRaw<{ message: string }>("/auth/forgot-password", {
+            method: "POST",
+            body: JSON.stringify({ email }),
+        }),
+    resetPassword: (token: string, newPassword: string) =>
+        fetchJsonRaw<{ message: string }>("/auth/reset-password", {
+            method: "POST",
+            body: JSON.stringify({ newPassword, token }),
+        }),
     logout: () => fetchJsonRaw<{ message: string }>("/auth/logout", { method: "POST" }),
 };
 
@@ -327,25 +339,27 @@ export const clientApi = {
 
 // ─── Upload ──────────────────────────────────────────
 
+// Multipart uploads can't go through fetchJson (it forces a JSON Content-Type,
+// and the browser must set the multipart boundary itself), so this mirrors its
+// behaviour: throw on a non-2xx response, and retry once after a silent refresh
+// on 401.
+async function uploadFile(path: string, file: File, retried = false): Promise<unknown> {
+    const form = new FormData();
+    form.append("file", file);
+    const res = await fetch(`${API_BASE}${path}`, { body: form, credentials: "include", method: "POST" });
+    if (res.status === 401 && !retried && await refreshAccessToken()) {
+        return uploadFile(path, file, true);
+    }
+    const data = await res.json().catch(() => ({ error: "Upload failed" }));
+    if (!res.ok) {
+        throw Object.assign(new Error(data.error || "Upload failed"), { status: res.status });
+    }
+    return data;
+}
+
 export const uploadApi = {
-    image: (file: File) => {
-        const form = new FormData();
-        form.append("file", file);
-        return fetch(`${API_BASE}/upload/image`, {
-            method: "POST",
-            credentials: "include",
-            body: form,
-        }).then((r) => r.json());
-    },
-    document: (file: File) => {
-        const form = new FormData();
-        form.append("file", file);
-        return fetch(`${API_BASE}/upload/document`, {
-            method: "POST",
-            credentials: "include",
-            body: form,
-        }).then((r) => r.json());
-    },
+    image: (file: File) => uploadFile("/upload/image", file),
+    document: (file: File) => uploadFile("/upload/document", file),
     presign: (filename: string, folder: string, contentType?: string) => {
         const qs = new URLSearchParams({ filename, folder });
         if (contentType) qs.append("contentType", contentType);

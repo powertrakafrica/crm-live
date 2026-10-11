@@ -28,15 +28,19 @@ export default function LoginPage() {
 
             const user = result.user as { role: string; isOnboardingComplete?: boolean } | undefined;
             const role = user?.role ?? "";
-            const redirect = new URLSearchParams(window.location.search).get("redirect");
+            // Only honour same-site paths ("/foo"). Anything else — an absolute
+            // URL, a protocol-relative "//host", or a "/\\host" variant — would
+            // turn the login page into an open redirect.
+            const rawRedirect = new URLSearchParams(window.location.search).get("redirect");
+            const redirect = rawRedirect && /^\/(?![/\\])/.test(rawRedirect) ? rawRedirect : null;
 
-            if (redirect) {
+            if (role === "agent" && user?.isOnboardingComplete === false) {
+                router.push("/onboarding");
+            } else if (redirect) {
                 router.push(redirect);
             } else if (role === "admin") {
                 const crmUrl = getCrmUrl();
                 window.location.href = crmUrl;
-            } else if (role === "agent" && user?.isOnboardingComplete === false) {
-                router.push("/onboarding");
             } else if (role === "agent") {
                 router.push("/agent");
             } else if (role === "client") {
@@ -98,7 +102,7 @@ export default function LoginPage() {
                                 <label htmlFor="password" className="block text-sm font-semibold text-slate-900">
                                     Password
                                 </label>
-                                <Link href="#" className="text-sm font-medium text-brand-600 hover:text-brand-700 transition-colors">
+                                <Link href="/auth/forgot-password" className="text-sm font-medium text-brand-600 hover:text-brand-700 transition-colors">
                                     Forgot password?
                                 </Link>
                             </div>

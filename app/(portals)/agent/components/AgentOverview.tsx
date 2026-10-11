@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import Link from "next/link";
 import {
     MapPin, Receipt, Clock, ClipboardCheck, Users, Home, ArrowRight, CheckCircle2, XCircle, CircleDashed,
 } from "lucide-react";
@@ -83,7 +82,10 @@ function StatCard({ icon: Icon, label, value, sub, tone }: {
     );
 }
 
-export function AgentOverview({ regionLabel }: { regionLabel?: string }) {
+export function AgentOverview({ onNavigate, regionLabel }: {
+    onNavigate: (tab: "tickets" | "verification") => void;
+    regionLabel?: string;
+}) {
     const [earnings, setEarnings] = useState<EarningsData | null>(null);
     const [tickets, setTickets] = useState<Ticket[]>([]);
     const [verifications, setVerifications] = useState<Verification[]>([]);
@@ -156,9 +158,9 @@ export function AgentOverview({ regionLabel }: { regionLabel?: string }) {
                             <h3 className="font-heading font-bold text-charcoal-950 flex items-center gap-2">
                                 <Users className="h-4 w-4 text-brand-600" /> Upcoming Viewings
                             </h3>
-                            <Link href="/agent/tickets" className="text-xs font-bold text-brand-700 hover:text-brand-800 flex items-center gap-1">
+                            <button type="button" onClick={() => onNavigate("tickets")} className="text-xs font-bold text-brand-700 hover:text-brand-800 flex items-center gap-1">
                                 View all <ArrowRight className="h-3 w-3" />
-                            </Link>
+                            </button>
                         </div>
                         {loading ? (
                             <div className="space-y-3">
@@ -198,9 +200,9 @@ export function AgentOverview({ regionLabel }: { regionLabel?: string }) {
                             <h3 className="font-heading font-bold text-charcoal-950 flex items-center gap-2">
                                 <ClipboardCheck className="h-4 w-4 text-brand-600" /> Recent Verifications
                             </h3>
-                            <Link href="/agent/verifications" className="text-xs font-bold text-brand-700 hover:text-brand-800 flex items-center gap-1">
+                            <button type="button" onClick={() => onNavigate("verification")} className="text-xs font-bold text-brand-700 hover:text-brand-800 flex items-center gap-1">
                                 View all <ArrowRight className="h-3 w-3" />
-                            </Link>
+                            </button>
                         </div>
                         {loading ? (
                             <div className="space-y-3">

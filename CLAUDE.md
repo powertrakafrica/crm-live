@@ -5,7 +5,7 @@ Agent instructions for working in this repo. Read before editing.
 ## Gates (must be green before declaring a task done)
 
 1. `npx tsc --noEmit` — **0 errors**.
-2. `npm run lint` — no new problems vs the current baseline (~137 problems: 105 errors / 32 warnings).
+2. `npm run lint` — no new problems vs the current baseline (102 problems: 72 errors / 30 warnings as of 2026-10-05).
    Do not add to the error count. If a new lint error appears, fix it — do not disable the rule.
 3. There is **no test runner** in this repo — do not claim tests pass; verify via tsc + lint + manual
    read. (Backend and crm_dashboard have vitest; this repo does not.)

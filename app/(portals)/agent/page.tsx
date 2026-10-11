@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import {
     Map, Ticket, ShieldCheck,
-    Home, Wallet, UserCircle, Bell, Loader2
+    Home, Wallet, UserCircle, Bell, Loader2, ShieldAlert
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
@@ -21,7 +21,7 @@ type TabId = "overview" | "tickets" | "verification" | "listings" | "earnings" |
 
 export default function AgentPortal() {
     const [activeTab, setActiveTab] = useState<TabId>("overview");
-    const [agentProfile, setAgentProfile] = useState<{ coverage?: { items: CoverageItem[] }; fullName?: string } | null>(null);
+    const [agentProfile, setAgentProfile] = useState<{ coverage?: { items: CoverageItem[] }; fullName?: string; verificationStatus?: null | string } | null>(null);
     const [activeLeads, setActiveLeads] = useState(0);
     const [headerLoading, setHeaderLoading] = useState(true);
 
@@ -78,11 +78,34 @@ export default function AgentPortal() {
                     <div className="flex items-center gap-3">
                         <Button variant="outline" size="icon" className="relative">
                             <Bell className="h-5 w-5 text-slate-600" />
-                            <span className="absolute top-1 right-1 block h-2.5 w-2.5 rounded-full bg-red-500 ring-2 ring-white"></span>
                         </Button>
                         <Badge variant="verified">{activeLeads} Active Leads</Badge>
                     </div>
                 </div>
+
+                {/* The backend locks leads, listings, verifications, tickets, earnings
+                    and payouts (403 AGENT_NOT_VERIFIED) until an admin approves the
+                    account — say so instead of showing an unexplained empty workspace. */}
+                {!headerLoading && agentProfile && agentProfile.verificationStatus !== "Approved" && (
+                    <div role="status" className="mb-8 flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                        <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+                        <div className="text-sm text-amber-900">
+                            <p className="font-bold">
+                                {agentProfile.verificationStatus === "Rejected"
+                                    ? "Your agent application was not approved"
+                                    : agentProfile.verificationStatus === "Suspended"
+                                        ? "Your agent account is suspended"
+                                        : "Your agent account is awaiting verification"}
+                            </p>
+                            <p className="mt-1">
+                                Leads, listings, verifications, tickets and earnings stay locked until TEPS approves your account.{" "}
+                                <button type="button" onClick={() => setActiveTab("profile")} className="font-bold underline">
+                                    Review your profile and documents
+                                </button>
+                            </p>
+                        </div>
+                    </div>
+                )}
 
                 {/* Horizontal Navigation */}
                 <nav aria-label="Agent workspace" className="mb-8">
@@ -106,7 +129,7 @@ export default function AgentPortal() {
 
                 {/* Main Content */}
                 <div className="min-h-[600px] animate-fade-in">
-                    {activeTab === "overview" && <AgentOverview regionLabel={assignedRegion} />}
+                    {activeTab === "overview" && <AgentOverview onNavigate={setActiveTab} regionLabel={assignedRegion} />}
                     {activeTab === "tickets" && <AgentTickets />}
                     {activeTab === "verification" && <AgentVerification />}
                     {activeTab === "listings" && <AgentListings />}
