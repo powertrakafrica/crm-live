@@ -2,11 +2,13 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ShieldCheck, UserCheck, Home, Key, Eye, EyeOff, ArrowRight, MailCheck } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { api } from "@/lib/api";
 
 export default function SignupPage() {
+    const router = useRouter();
     const [role, setRole] = useState("client");
     const [fullName, setFullName] = useState("");
     const [email, setEmail] = useState("");
@@ -22,10 +24,15 @@ export default function SignupPage() {
         setLoading(true);
         setError("");
         try {
-            await api.register({ email, password, fullName, phone, role });
-            // No redirect to login: a new account cannot sign in until the
-            // emailed link is opened.
-            setSubmitted(true);
+            const result = await api.register({ email, password, fullName, phone, role });
+            if (result.verificationRequired) {
+                // Email confirmation is on: the account cannot sign in until
+                // the emailed link is opened, so stay here and say so.
+                setSubmitted(true);
+            } else {
+                // Confirmation is off (the current setup): the account is ready.
+                router.push("/auth/login");
+            }
         } catch (err: any) {
             setError(err.message || "Registration failed");
         } finally {

@@ -5,7 +5,7 @@ import type { FormEvent } from "react";
 import Link from "next/link";
 import { ArrowLeft, KeyRound, MailCheck } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { api } from "@/lib/api";
+import { api, EMAIL_ENABLED } from "@/lib/api";
 
 export default function ForgotPasswordPage() {
     const [email, setEmail] = useState("");
@@ -40,7 +40,7 @@ export default function ForgotPasswordPage() {
                         Forgot your password?
                     </h1>
                     <p className="mt-2 text-slate-500">
-                        Enter your account email and we&apos;ll send you a reset link.
+                        Enter your account email and we&apos;ll send a reset link{EMAIL_ENABLED ? "" : " by WhatsApp"}.
                     </p>
                 </div>
 
@@ -52,11 +52,16 @@ export default function ForgotPasswordPage() {
                             </div>
                             <p className="text-sm text-slate-700">
                                 If an account exists for <span className="font-semibold">{email.trim()}</span>, a reset link
-                                has been sent to that email address, and by WhatsApp if the account has a phone number. The
-                                link expires in 1 hour.
+                                has been sent{" "}
+                                {EMAIL_ENABLED
+                                    ? "to that email address, and by WhatsApp if the account has a phone number"
+                                    : "by WhatsApp to the phone number on that account"}
+                                . The link expires in 1 hour.
                             </p>
                             <p className="text-xs text-slate-500">
-                                Nothing arrived? Check your spam folder, or try again.
+                                {EMAIL_ENABLED
+                                    ? "Nothing arrived? Check your spam folder, or try again."
+                                    : "Nothing arrived? Check that your account has a WhatsApp number, or try again."}
                             </p>
                             <Button type="button" variant="outline" className="w-full" onClick={() => setSent(false)}>
                                 Send again

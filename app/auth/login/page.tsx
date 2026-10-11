@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ShieldCheck, Eye, EyeOff, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { api } from "@/lib/api";
+import { api, EMAIL_ENABLED } from "@/lib/api";
 import { getCrmUrl } from "@/lib/crmUrl";
 
 export default function LoginPage() {
@@ -80,7 +80,7 @@ export default function LoginPage() {
                                 {/* The backend gives an unverified account the same error as
                                     a wrong password (so signup can't be used to discover
                                     accounts), so point new users at the fix here. */}
-                                {error === "Invalid credentials" && (
+                                {EMAIL_ENABLED && error === "Invalid credentials" && (
                                     <p className="mt-1 font-normal">
                                         Just signed up? Confirm your email first —{" "}
                                         <Link href="/auth/verify-email" className="font-semibold underline">

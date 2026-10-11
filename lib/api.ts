@@ -2,6 +2,11 @@ import type { GeoConstituency, GeoConstituencyDetail, GeoFeatureCollection, GeoR
 
 export const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:9001/api";
 
+// Mirrors the backend's EMAIL_ENABLED switch, for copy that depends on it (the
+// "confirm your email" hint on login, where the reset link is sent). Email is
+// shelved, so this is off unless NEXT_PUBLIC_EMAIL_ENABLED=true.
+export const EMAIL_ENABLED = process.env.NEXT_PUBLIC_EMAIL_ENABLED === "true";
+
 export interface AgentDocument {
     createdAt: string;
     docType: string;
@@ -177,10 +182,13 @@ export const api = {
             body: JSON.stringify(body),
         }),
     register: (body: { email: string; password: string; fullName: string; phone?: string; role?: string }) =>
-        // The backend answers identically whether the account was created or the
-        // address was already registered (it must not reveal which); the user
-        // finishes signup from the link in their inbox.
-        fetchJsonRaw<{ message: string }>("/auth/register", {
+        // `verificationRequired` says which signup flow the backend is running:
+        //   false (current) — email is switched off server-side; the account is
+        //     ready and the user can sign in straight away.
+        //   true — email confirmation is on: the backend answers identically
+        //     whether the account was created or the address was already
+        //     registered, and the user finishes from the link in their inbox.
+        fetchJsonRaw<{ message: string; verificationRequired?: boolean }>("/auth/register", {
             method: "POST",
             body: JSON.stringify(body),
         }),
