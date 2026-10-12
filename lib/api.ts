@@ -48,6 +48,28 @@ export function fileProxyUrl(spacesUrl: string | null | undefined): string | nul
     }
 }
 
+// True for URLs served by our own API (the private-file proxy), as opposed to a
+// public CDN URL or a short-lived presigned preview link.
+export function isApiUrl(url: string): boolean {
+    return url.startsWith(`${API_BASE}/`);
+}
+
+// Download a private file through the API with the session cookie, renewing an
+// expired login once (the same 401 → refresh → retry every other call gets).
+// Loading documents this way, rather than pointing an <img>/<iframe> straight
+// at the proxy URL, is what lets the viewer show a real loading state, explain
+// a failure, and offer a working download. Rejects with `status` on failure.
+export async function fetchPrivateFile(url: string, retried = false): Promise<Blob> {
+    const res = await fetch(url, { credentials: "include" });
+    if (res.status === 401 && !retried && await refreshAccessToken()) {
+        return fetchPrivateFile(url, true);
+    }
+    if (!res.ok) {
+        throw Object.assign(new Error("Could not load file"), { status: res.status });
+    }
+    return res.blob();
+}
+
 export interface RentPeriod {
     amountDue: number;
     dueReminderSentAt: string | null;
